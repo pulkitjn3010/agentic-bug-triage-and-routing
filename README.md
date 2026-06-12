@@ -143,7 +143,7 @@ python scripts/seed_kb_articles.py
 ### 5. Run the Application
 **Start the Backend (FastAPI):**
 ```bash
-uvicorn api_gateway.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn api_gateway.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Start the Frontend (React):**
