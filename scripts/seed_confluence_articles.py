@@ -16,6 +16,7 @@ load_dotenv()
 # OR falls back to single-instance env vars
 # OR uses public wikis (no auth required)
 
+
 def load_workspaces() -> list[dict]:
     raw = os.getenv("CONFLUENCE_WORKSPACES", "")
     if raw.strip():
@@ -27,30 +28,33 @@ def load_workspaces() -> list[dict]:
     workspaces = []
 
     # Primary workspace (your Atlassian Cloud instance)
-    url   = os.getenv("CONFLUENCE_URL",
-                      "https://cpp3-hpe.atlassian.net/wiki")
+    url = os.getenv("CONFLUENCE_URL", "https://cpp3-hpe.atlassian.net/wiki")
     email = os.getenv("CONFLUENCE_EMAIL", "")
     token = os.getenv("CONFLUENCE_API_TOKEN", "")
     space = os.getenv("CONFLUENCE_SPACE_KEY", "HPEKB")
 
     if url and email and token:
-        workspaces.append({
-            "name":      "HPE Engineering KB",
-            "base_url":  url,
-            "email":     email,
-            "token":     token,
-            "space_key": space,
-        })
+        workspaces.append(
+            {
+                "name": "HPE Engineering KB",
+                "base_url": url,
+                "email": email,
+                "token": token,
+                "space_key": space,
+            }
+        )
 
     # Public Apache Confluence (no auth required)
-    workspaces.append({
-        "name":      "Apache Wiki (Public — no auth)",
-        "base_url":  "https://cwiki.apache.org/confluence",
-        "email":     "",
-        "token":     "",
-        "space_key": "SPARK",
-        "read_only": True,   # We only READ from this, not seed
-    })
+    workspaces.append(
+        {
+            "name": "Apache Wiki (Public — no auth)",
+            "base_url": "https://cwiki.apache.org/confluence",
+            "email": "",
+            "token": "",
+            "space_key": "SPARK",
+            "read_only": True,  # We only READ from this, not seed
+        }
+    )
 
     return workspaces
 
@@ -81,7 +85,7 @@ attribute resolution failures.</p>
 Workaround: set spark.sql.optimizer.excludedRules=
 org.apache.spark.sql.catalyst.optimizer.InlineCTE</p>
 <h2>Related Issues</h2>
-<p>SPARK-45057, SPARK-44407, SPARK-43596</p>"""
+<p>SPARK-45057, SPARK-44407, SPARK-43596</p>""",
     },
     {
         "title": "Kafka Consumer Group Rebalancing — Diagnosis and Prevention",
@@ -98,7 +102,7 @@ Network partition. Consumer crash during offset commit.</p>
 <h2>Resolution</h2>
 <p>Increase max.poll.interval.ms. Reduce max.poll.records.
 Implement incremental cooperative rebalancing protocol.
-Set heartbeat.interval.ms to session.timeout.ms / 3.</p>"""
+Set heartbeat.interval.ms to session.timeout.ms / 3.</p>""",
     },
     {
         "title": "Kubernetes Pod OOMKilled — Root Cause Analysis and Prevention",
@@ -114,7 +118,7 @@ Memory leak growing over time. requests.memory too low.</p>
 <h2>Fix</h2>
 <p>Set JVM heap to 75% of container limit: -Xmx = limit * 0.75.
 Add -XX:+ExitOnOutOfMemoryError for clean exit with heap dump.
-Use VPA to auto-tune limits. Set limits 20-30% above requests.</p>"""
+Use VPA to auto-tune limits. Set limits 20-30% above requests.</p>""",
     },
     {
         "title": "StorageController NullPointerException — Concurrent Provisioning Fix",
@@ -131,7 +135,7 @@ when storage pool is initializing concurrently.</p>
 <h2>Fix</h2>
 <p>Add null guard before dereferencing quota object.
 Apply synchronized block around DiskQuota.check() call.
-PR: add null guard in DiskQuota.check() for concurrent provisioning.</p>"""
+PR: add null guard in DiskQuota.check() for concurrent provisioning.</p>""",
     },
     {
         "title": "Spark Structured Streaming — DSv2 Checkpoint Recovery",
@@ -144,7 +148,7 @@ IllegalArgumentException: Incompatible schema change detected.</p>
 <h2>Resolution</h2>
 <p>Delete checkpoint directory and restart with clean checkpointLocation.
 Enable spark.sql.streaming.forceDeleteTempCheckpointLocation=true.
-For schema evolution: enable mergeSchema and upgrade to Spark 3.4+.</p>"""
+For schema evolution: enable mergeSchema and upgrade to Spark 3.4+.</p>""",
     },
     {
         "title": "PySpark Connect Mode — Spark 3.4 and 3.5 Compatibility Guide",
@@ -157,7 +161,7 @@ UDF registration fails silently. pandas_udf not supported in all scenarios.
 Arrow serialization errors for complex types.</p>
 <h2>Workaround</h2>
 <p>Use serverside UDFs with spark.udf.register() through SQL.
-Enable spark.sql.execution.arrow.pyspark.enabled=true.</p>"""
+Enable spark.sql.execution.arrow.pyspark.enabled=true.</p>""",
     },
     {
         "title": "Firefox WebGL Context Lost — Recovery and Prevention",
@@ -170,7 +174,7 @@ Multiple tabs consuming GPU memory. WebGL memory leak causing GPU OOM.</p>
 <h2>Recovery</h2>
 <p>Listen for webglcontextlost, call event.preventDefault().
 Listen for webglcontextrestored to reinitialize WebGL state.
-Set dom.webgl.enable-renderer-query true in about:config.</p>"""
+Set dom.webgl.enable-renderer-query true in about:config.</p>""",
     },
     {
         "title": "HDFS DataNode Disk Failure Recovery",
@@ -184,7 +188,7 @@ DiskChecker.DiskErrorException: directory is not writable.</p>
 <p>Check dfs.datanode.failed.volumes.tolerated setting.
 Remove failed disk from dfs.datanode.data.dir config.
 Run hdfs fsck to identify under-replicated blocks.
-Run hdfs dfs -setrep -R to re-replicate affected data.</p>"""
+Run hdfs dfs -setrep -R to re-replicate affected data.</p>""",
     },
     {
         "title": "Apache Flink Job Manager High CPU Under Backpressure",
@@ -198,7 +202,7 @@ Checkpoint history shows repeated failures with timeout.</p>
 <h2>Resolution</h2>
 <p>Increase execution.checkpointing.interval to reduce coordinator load.
 Enable unaligned checkpoints.
-Increase taskmanager.network.memory.fraction for network buffers.</p>"""
+Increase taskmanager.network.memory.fraction for network buffers.</p>""",
     },
     {
         "title": "Spark Memory Management — Executor OOM and Spill",
@@ -212,7 +216,7 @@ ExecutorLostFailure due to OOM exit code 137.</p>
 <h2>Resolution</h2>
 <p>Increase spark.executor.memory and spark.executor.memoryOverhead.
 Reduce spark.memory.storageFraction for more execution memory.
-Enable off-heap: spark.memory.offHeap.enabled=true.</p>"""
+Enable off-heap: spark.memory.offHeap.enabled=true.</p>""",
     },
     {
         "title": "Kafka Producer Timeout and Retry Configuration",
@@ -225,7 +229,7 @@ NotLeaderOrFollowerException during leader election.</p>
 <h2>Fix</h2>
 <p>Set delivery.timeout.ms = request.timeout.ms + linger.ms + retries.
 Enable idempotent producer: enable.idempotence=true.
-Set acks=all with min.insync.replicas=2.</p>"""
+Set acks=all with min.insync.replicas=2.</p>""",
     },
     {
         "title": "Thread Safety in Java Concurrent Programming",
@@ -238,7 +242,7 @@ Double-checked locking without volatile. Iterator invalidation.</p>
 <h2>Resolution</h2>
 <p>Use AtomicReference for single-object updates.
 Use ConcurrentHashMap instead of HashMap.
-Use ReadWriteLock for read-heavy workloads.</p>"""
+Use ReadWriteLock for read-heavy workloads.</p>""",
     },
     {
         "title": "Kubernetes Resource Limits — Preventing Scheduling Failures",
@@ -250,7 +254,7 @@ available capacity or limit configurations conflict with workloads.</p>
 Pod evicted: The node was low on resource: memory.</p>
 <h2>Best Practices</h2>
 <p>Set requests = average usage, limits = peak * 1.2.
-Use VPA in recommendation mode. Monitor with kubectl top pods.</p>"""
+Use VPA in recommendation mode. Monitor with kubectl top pods.</p>""",
     },
     {
         "title": "Apache Hive Metastore Connectivity and Schema Issues",
@@ -263,7 +267,7 @@ TException: Could not connect to meta store.
 Hive Schema version does not match metastore version.</p>
 <h2>Resolution</h2>
 <p>Run schematool -dbType mysql -upgradeSchema after Hive upgrade.
-Set hive.metastore.schema.verification=false during migration.</p>"""
+Set hive.metastore.schema.verification=false during migration.</p>""",
     },
     {
         "title": "Zookeeper Session Expiry and Leader Election Issues",
@@ -275,7 +279,7 @@ to lose coordination.</p>
 Kafka broker lost leadership due to ZooKeeper session expiry.</p>
 <h2>Resolution</h2>
 <p>Increase zookeeper.session.timeout.ms to 30000+ for Kafka.
-Tune JVM GC to reduce stop-the-world pauses below session timeout.</p>"""
+Tune JVM GC to reduce stop-the-world pauses below session timeout.</p>""",
     },
     {
         "title": "Spark Adaptive Query Execution — Configuration Guide",
@@ -288,7 +292,7 @@ Skew detection false positives on non-uniform data.</p>
 <h2>Configuration</h2>
 <p>spark.sql.adaptive.enabled=true (default in Spark 3.2+).
 spark.sql.adaptive.coalescePartitions.enabled=true.
-spark.sql.adaptive.advisoryPartitionSizeInBytes=128m</p>"""
+spark.sql.adaptive.advisoryPartitionSizeInBytes=128m</p>""",
     },
     {
         "title": "HPE ProLiant Storage Controller — Volume Allocation Guide",
@@ -302,7 +306,7 @@ DiskQuota check returns null during concurrent provisioning.</p>
 <h2>Resolution</h2>
 <p>Apply HPE Smart Array firmware update.
 Set concurrent provisioning limit to 4.
-Configure dedicated provisioning queue thread pool size.</p>"""
+Configure dedicated provisioning queue thread pool size.</p>""",
     },
     {
         "title": "Network Fabric Link-State Oscillation — Diagnosis Guide",
@@ -315,7 +319,7 @@ Auto-negotiation failure. LACP timeout under heavy multicast traffic.</p>
 <h2>Resolution</h2>
 <p>Enable port dampening to suppress flapping interfaces.
 Replace suspect SFP modules. Force speed and duplex settings.
-Increase LACP timeout from short (1s) to long (30s) mode.</p>"""
+Increase LACP timeout from short (1s) to long (30s) mode.</p>""",
     },
     {
         "title": "VS Code Extension High Memory Usage and Language Server Crashes",
@@ -329,7 +333,7 @@ Pylance: not enough memory to resolve imports.</p>
 <h2>Resolution</h2>
 <p>Set typescript.tsserver.maxTsServerMemory: 4096.
 Exclude node_modules from TypeScript project.
-Use pyrightconfig.json to limit Pylance analysis scope.</p>"""
+Use pyrightconfig.json to limit Pylance analysis scope.</p>""",
     },
     {
         "title": "Kafka Log Compaction — Configuration and Troubleshooting",
@@ -342,7 +346,7 @@ Consumer position falls outside compacted offsets.</p>
 <h2>Resolution</h2>
 <p>Set log.cleaner.io.max.bytes.per.second to limit cleaner I/O.
 Increase log.cleaner.threads if compaction falls behind.
-Set delete.retention.ms to keep tombstones for consumers.</p>"""
+Set delete.retention.ms to keep tombstones for consumers.</p>""",
     },
     {
         "title": "Java Heap Dump Analysis — OutOfMemoryError Investigation",
@@ -354,7 +358,7 @@ Common patterns: unbounded caches, listener accumulation, classloader leaks.</p>
 Use jmap: jmap -dump:format=b,file=heap.hprof pid</p>
 <h2>Common Leak Patterns</h2>
 <p>Static HashMap accumulating entries without eviction.
-ThreadLocal variables not cleaned up after thread pool reuse.</p>"""
+ThreadLocal variables not cleaned up after thread pool reuse.</p>""",
     },
     {
         "title": "Spark SQL Join Strategy Selection and Broadcast Hints",
@@ -366,7 +370,7 @@ Incorrect strategy causes OOM or excessive shuffle.</p>
 java.lang.OutOfMemoryError during broadcast exchange.</p>
 <h2>Hints</h2>
 <p>SELECT /*+ BROADCAST(small_table) */ ...
-Reduce spark.sql.autoBroadcastJoinThreshold or disable with -1.</p>"""
+Reduce spark.sql.autoBroadcastJoinThreshold or disable with -1.</p>""",
     },
     {
         "title": "Apache Cassandra Read Timeout and Coordinator Issues",
@@ -379,7 +383,7 @@ ReadTimeoutException: code=0x1200 in coordinator logs.</p>
 <h2>Resolution</h2>
 <p>Run nodetool repair to fix inconsistent replica state.
 Tune read_request_timeout_in_ms from 5000 to 10000.
-Compact tables with high tombstone counts using nodetool compact.</p>"""
+Compact tables with high tombstone counts using nodetool compact.</p>""",
     },
     {
         "title": "Apache Airflow Task Failure Recovery and DAG Scheduling",
@@ -391,12 +395,13 @@ scheduler heartbeat failures, zombie tasks, executor saturation.</p>
 DAGRun stuck in running state with no active tasks.</p>
 <h2>Resolution</h2>
 <p>Set core.dag_file_processor_timeout = 120 for complex DAGs.
-Set task retries and retry_delay for transient failures.</p>"""
+Set task retries and retry_delay for transient failures.</p>""",
     },
 ]
 
 
 # ─── Markdown Scanner ──────────────────────────────────────────────
+
 
 def load_markdown_articles() -> list[dict]:
     kb_dir = os.getenv("KB_MARKDOWN_DIRECTORY", "./knowledge_base")
@@ -409,12 +414,11 @@ def load_markdown_articles() -> list[dict]:
         try:
             text = md_file.read_text(encoding="utf-8")
             # Extract title from first H1 heading
-            h1_match = re.search(r'^#\s+(.+)$', text,
-                                  re.MULTILINE)
+            h1_match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
             if h1_match:
                 title = h1_match.group(1).strip()
                 # Remove the H1 line from body
-                body_md = text[h1_match.end():].strip()
+                body_md = text[h1_match.end() :].strip()
             else:
                 title = md_file.stem.replace("-", " ").title()
                 body_md = text
@@ -432,32 +436,31 @@ def _markdown_to_html(md: str) -> str:
     """Convert basic Markdown to Confluence storage HTML."""
     html = md
     # H2 headings
-    html = re.sub(r'^##\s+(.+)$', r'<h2>\1</h2>', html,
-                  flags=re.MULTILINE)
+    html = re.sub(r"^##\s+(.+)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
     # H3 headings
-    html = re.sub(r'^###\s+(.+)$', r'<h3>\1</h3>', html,
-                  flags=re.MULTILINE)
+    html = re.sub(r"^###\s+(.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
     # Bold text
-    html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
     # Italic
-    html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
+    html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
     # Code blocks
-    html = re.sub(r'`(.+?)`', r'<code>\1</code>', html)
+    html = re.sub(r"`(.+?)`", r"<code>\1</code>", html)
     # Paragraphs (double newline)
-    blocks = re.split(r'\n\n+', html)
+    blocks = re.split(r"\n\n+", html)
     result = []
     for block in blocks:
         block = block.strip()
         if not block:
             continue
-        if block.startswith('<h') or block.startswith('<ul'):
+        if block.startswith("<h") or block.startswith("<ul"):
             result.append(block)
         else:
-            result.append(f'<p>{block}</p>')
-    return '\n'.join(result)
+            result.append(f"<p>{block}</p>")
+    return "\n".join(result)
 
 
 # ─── HTTP Helpers ───────────────────────────────────────────────────
+
 
 def _make_headers(workspace: dict) -> dict:
     headers = {
@@ -468,8 +471,7 @@ def _make_headers(workspace: dict) -> dict:
     token = workspace.get("token", "").strip()
 
     if email and token:
-        creds = base64.b64encode(
-            f"{email}:{token}".encode()).decode()
+        creds = base64.b64encode(f"{email}:{token}".encode()).decode()
         headers["Authorization"] = f"Basic {creds}"
     elif token:
         headers["Authorization"] = f"Bearer {token}"
@@ -486,13 +488,10 @@ async def get_existing_titles(workspace: dict) -> set[str]:
         "limit": 200,
     }
     try:
-        async with httpx.AsyncClient(
-                timeout=20,
-                follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             resp = await client.get(
-                url,
-                headers=_make_headers(workspace),
-                params=params)
+                url, headers=_make_headers(workspace), params=params
+            )
             if resp.status_code == 200:
                 results = resp.json().get("results", [])
                 return {r["title"] for r in results}
@@ -501,8 +500,7 @@ async def get_existing_titles(workspace: dict) -> set[str]:
     return set()
 
 
-async def create_article(workspace: dict,
-                          title: str, body: str) -> bool:
+async def create_article(workspace: dict, title: str, body: str) -> bool:
     base = workspace["base_url"].rstrip("/")
     space = workspace["space_key"]
     url = f"{base}/rest/api/content"
@@ -518,19 +516,15 @@ async def create_article(workspace: dict,
         },
     }
     try:
-        async with httpx.AsyncClient(
-                timeout=20,
-                follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             resp = await client.post(
-                url,
-                headers=_make_headers(workspace),
-                json=payload)
+                url, headers=_make_headers(workspace), json=payload
+            )
             if resp.status_code in (200, 201):
                 print(f"  ✓ Created: {title}")
                 return True
             else:
-                print(f"  ✗ Failed ({resp.status_code}): "
-                      f"{title[:60]}")
+                print(f"  ✗ Failed ({resp.status_code}): " f"{title[:60]}")
                 if resp.status_code != 400:
                     print(f"    {resp.text[:150]}")
                 return False
@@ -541,16 +535,18 @@ async def create_article(workspace: dict,
 
 # ─── Seeding Engine ────────────────────────────────────────────────
 
-async def seed_workspace(workspace: dict,
-                          articles: list[dict]) -> None:
+
+async def seed_workspace(workspace: dict, articles: list[dict]) -> None:
     name = workspace.get("name", workspace["base_url"])
     is_readonly = workspace.get("read_only", False)
 
     print(f"\n{'='*60}")
     print(f"Workspace: {name}")
     print(f"Space:     {workspace['space_key']}")
-    print(f"Auth:      "
-          f"{'Public (no auth)' if not workspace.get('token') else 'Authenticated'}")
+    print(
+        f"Auth:      "
+        f"{'Public (no auth)' if not workspace.get('token') else 'Authenticated'}"
+    )
 
     if is_readonly:
         print("Mode: READ ONLY — skipping seeding for public wiki")
@@ -572,8 +568,7 @@ async def seed_workspace(workspace: dict,
             print(f"  ~ Skip: {title[:70]}")
             skipped += 1
             continue
-        ok = await create_article(
-            workspace, title, article["body"])
+        ok = await create_article(workspace, title, article["body"])
         if ok:
             created += 1
         else:
@@ -582,8 +577,7 @@ async def seed_workspace(workspace: dict,
         await asyncio.sleep(0.3)
 
     print()
-    print(f"Result: {created} created, "
-          f"{skipped} skipped, {failed} failed")
+    print(f"Result: {created} created, " f"{skipped} skipped, {failed} failed")
 
 
 async def main() -> None:
@@ -593,8 +587,7 @@ async def main() -> None:
     workspaces = load_workspaces()
     if not workspaces:
         print("ERROR: No workspaces configured.")
-        print("Set CONFLUENCE_EMAIL and CONFLUENCE_API_TOKEN "
-              "in .env")
+        print("Set CONFLUENCE_EMAIL and CONFLUENCE_API_TOKEN " "in .env")
         return
 
     # Load articles
@@ -609,8 +602,7 @@ async def main() -> None:
     print(f"Total articles to seed: {len(articles)}")
 
     # Seed all workspaces concurrently
-    await asyncio.gather(
-        *[seed_workspace(ws, articles) for ws in workspaces])
+    await asyncio.gather(*[seed_workspace(ws, articles) for ws in workspaces])
 
     print("\n" + "=" * 60)
     print("Seeding complete.")

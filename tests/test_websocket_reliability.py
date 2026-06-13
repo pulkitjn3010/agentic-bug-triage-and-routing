@@ -32,7 +32,7 @@ class FakeRedis:
         values = self.lists.get(key, [])
         if end == -1:
             return values[start:]
-        return values[start:end + 1]
+        return values[start : end + 1]
 
     async def expire(self, key, ttl):
         self.calls.append(("expire", key, ttl))
@@ -69,12 +69,14 @@ def test_panel_updates_are_cached_before_send(monkeypatch):
     monkeypatch.setattr(redis_module, "get_redis", get_fake_redis)
     monkeypatch.setattr("orchestrator.orchestrator.get_redis", get_fake_redis)
 
-    run(TaskOrchestrator()._publish_panel(
-        "case-1",
-        "bug_context",
-        {"bug_context": {"ticket_id": "BUG-1"}},
-        agent="ContextFetchAgent",
-    ))
+    run(
+        TaskOrchestrator()._publish_panel(
+            "case-1",
+            "bug_context",
+            {"bug_context": {"ticket_id": "BUG-1"}},
+            agent="ContextFetchAgent",
+        )
+    )
 
     call_names = [call[0] for call in fake.calls]
     assert call_names.index("setex") < call_names.index("publish")
@@ -125,12 +127,14 @@ def test_websocket_disconnect_does_not_stop_panel_publish(monkeypatch):
 
     manager = ConnectionManager()
     manager.disconnect("case-1")
-    run(TaskOrchestrator()._publish_panel(
-        "case-1",
-        "related_issues",
-        {"related_tickets": []},
-        agent="CrossSystemFetchAgent",
-    ))
+    run(
+        TaskOrchestrator()._publish_panel(
+            "case-1",
+            "related_issues",
+            {"related_tickets": []},
+            agent="CrossSystemFetchAgent",
+        )
+    )
 
     published = [call for call in fake.calls if call[0] == "publish"]
     stored = json.loads(fake.values["panel:case-1:related_issues"])

@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from ..auth import authenticate_user, create_access_token, get_current_user, require_role, User
+from ..auth import (
+    authenticate_user,
+    create_access_token,
+    get_current_user,
+    require_role,
+    User,
+)
 from orchestrator.db.session import AsyncSessionLocal
 from orchestrator.db.repositories.user_roles import (
     get_user_by_email,
@@ -38,9 +44,6 @@ async def login(body: LoginRequest):
     return await auth_service.login(body.email, body.password)
 
 
-
-
-
 @router.get("/me")
 async def me(user: User = Depends(get_current_user)):
     return {
@@ -56,9 +59,6 @@ async def list_users():
     return await user_service.list_users()
 
 
-
-
-
 @router.post("/users", dependencies=[Depends(require_role("admin"))])
 async def create_user(body: CreateUserRequest):
     return await user_service.create_user(
@@ -69,12 +69,6 @@ async def create_user(body: CreateUserRequest):
     )
 
 
-
-
-
 @router.delete("/users/{email}", dependencies=[Depends(require_role("admin"))])
 async def delete_user(email: str):
     return await user_service.delete_user(email)
-
-
-

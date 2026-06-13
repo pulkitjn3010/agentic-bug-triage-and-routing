@@ -14,8 +14,15 @@ class BaseConnector(ABC):
     KNOWLEDGE_SOURCE_TYPES = {"confluence", "support_kb"}
     CUSTOMER_SOURCE_TYPES = {"customer_portal"}
 
-    def __init__(self, source_id: str, system_type: str, base_url: str,
-                 project_key: str, ticket_prefix: str, token: str = ""):
+    def __init__(
+        self,
+        source_id: str,
+        system_type: str,
+        base_url: str,
+        project_key: str,
+        ticket_prefix: str,
+        token: str = "",
+    ):
         self.source_id = source_id
         self.system_type = system_type
         self.base_url = (base_url or "").rstrip("/")
@@ -47,11 +54,8 @@ class BaseConnector(ABC):
         pass
 
     async def search_open_bugs(
-            self,
-            status: str = "open",
-            severity: str = "",
-            max_results: int = 100,
-            **kwargs) -> list[TicketData]:
+        self, status: str = "open", severity: str = "", max_results: int = 100, **kwargs
+    ) -> list[TicketData]:
         return await self.search("", max_results=max_results)
 
     @abstractmethod

@@ -23,58 +23,49 @@ SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
 
 # ── Helpers (exact copies from cases_routes.py) ───────────────────
 
-async def assemble_grouped_bug_list(
-        raw_bugs: list[dict],
-        db: AsyncSession) -> dict:
+
+async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> dict:
     """
     Transform a flat bug page into a tree of groups + standalones.
     All DB lookups are single IN-queries — no N+1 queries.
     """
-    all_ticket_ids: set[str] = {
-        b["ticket_id"] for b in raw_bugs if b.get("ticket_id")
-    }
-    live_by_ticket = {
-        b["ticket_id"]: b for b in raw_bugs if b.get("ticket_id")
-    }
+    all_ticket_ids: set[str] = {b["ticket_id"] for b in raw_bugs if b.get("ticket_id")}
+    live_by_ticket = {b["ticket_id"]: b for b in raw_bugs if b.get("ticket_id")}
 
     # Step 2: batch group-mapping lookup
-    group_map: dict[str, str] = {}        # raw_ticket_id → group_id
+    group_map: dict[str, str] = {}  # raw_ticket_id → group_id
     if all_ticket_ids:
         result = await db.execute(
             select(
                 BugGroupMapping.raw_ticket_id,
                 BugGroupMapping.group_id,
-            ).where(BugGroupMapping.raw_ticket_id.in_(
-                list(all_ticket_ids)))
+            ).where(BugGroupMapping.raw_ticket_id.in_(list(all_ticket_ids)))
         )
         for row in result.all():
             group_map[row.raw_ticket_id] = row.group_id
 
     # Step 3: batch group-info lookup
-    group_info: dict[str, dict] = {}      # group_id → metadata
+    group_info: dict[str, dict] = {}  # group_id → metadata
     group_ids = set(group_map.values())
     if group_ids:
         result = await db.execute(
             select(SystemGroupRegistry).where(
-                SystemGroupRegistry.group_id.in_(
-                    list(group_ids)))
+                SystemGroupRegistry.group_id.in_(list(group_ids))
+            )
         )
         for grp in result.scalars().all():
             group_info[grp.group_id] = {
-                "priority":  grp.priority or "Unknown",
-                "status":    grp.status   or "active",
-                "title":     grp.title    or "",
-                "created_at": (
-                    grp.created_at.isoformat()
-                    if grp.created_at else ""),
+                "priority": grp.priority or "Unknown",
+                "status": grp.status or "active",
+                "title": grp.title or "",
+                "created_at": (grp.created_at.isoformat() if grp.created_at else ""),
             }
 
     # Step 4: expand all group mappings for groups touched by this page
     group_members: dict[str, list] = defaultdict(list)
     if group_ids:
         result = await db.execute(
-            select(BugGroupMapping).where(
-                BugGroupMapping.group_id.in_(list(group_ids)))
+            select(BugGroupMapping).where(BugGroupMapping.group_id.in_(list(group_ids)))
         )
         for mapping in result.scalars().all():
             group_members[mapping.group_id].append(mapping)
@@ -102,19 +93,16 @@ async def assemble_grouped_bug_list(
                 seen.add(entry.bug_id)
                 triage_map[entry.bug_id] = {
                     "id": entry.id,
-                    "case_id":   entry.case_id or "",
-                    "severity":  (
+                    "case_id": entry.case_id or "",
+                    "severity": (
                         (entry.summary or {}).get("severity")
-                        or (entry.summary or {}).get(
-                            "unified_severity", "")),
-                    "confidence": (
-                        (entry.summary or {}).get(
-                            "confidence", 0)),
+                        or (entry.summary or {}).get("unified_severity", "")
+                    ),
+                    "confidence": ((entry.summary or {}).get("confidence", 0)),
                     "triaged_at": (
-                        entry.created_at.isoformat()
-                        if entry.created_at else ""),
-                    "systems_queried": (
-                        entry.systems_queried or []),
+                        entry.created_at.isoformat() if entry.created_at else ""
+                    ),
+                    "systems_queried": (entry.systems_queried or []),
                     "duration_ms": entry.duration_ms or 0,
                 }
 
@@ -122,22 +110,14 @@ async def assemble_grouped_bug_list(
         live = live_by_ticket.get(member.raw_ticket_id, {})
         return {
             "ticket_id": member.raw_ticket_id,
-            "source": (
-                live.get("source")
-                or member.system_type
-                or member.source_id),
+            "source": (live.get("source") or member.system_type or member.source_id),
             "source_id": member.source_id,
             "system_type": (
-                live.get("system_type")
-                or member.system_type
-                or member.source_id),
-            "source_display_name": live.get(
-                "source_display_name", member.source_id),
+                live.get("system_type") or member.system_type or member.source_id
+            ),
+            "source_display_name": live.get("source_display_name", member.source_id),
             "title": live.get("title") or member.title or "",
-            "severity": (
-                live.get("severity")
-                or member.severity
-                or "Unknown"),
+            "severity": (live.get("severity") or member.severity or "Unknown"),
             "status": live.get("status") or member.status or "open",
             "assignee": live.get("assignee", ""),
             "updated_at": live.get("updated_at", ""),
@@ -151,10 +131,7 @@ async def assemble_grouped_bug_list(
         }
 
     # Step 6: split grouped vs. ungrouped
-    ungrouped_bugs = [
-        b for b in raw_bugs
-        if b.get("ticket_id", "") not in group_map
-    ]
+    ungrouped_bugs = [b for b in raw_bugs if b.get("ticket_id", "") not in group_map]
 
     # Step 7: build explicit group root + child rows
     _PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
@@ -169,35 +146,35 @@ async def assemble_grouped_bug_list(
         if not root:
             continue
         child_rows = [
-            row for row in member_rows
-            if row.get("ticket_id") != root.get("ticket_id")
+            row for row in member_rows if row.get("ticket_id") != root.get("ticket_id")
         ]
-        group_rows.append({
-            "group_id":   gid,
-            "type":       "group",
-            "priority":   (
-                info.get("priority")
-                or root.get("severity")
-                or "Unknown"),
-            "status":     info.get("status", "active"),
-            "title":      info.get("title") or root.get("title", ""),
-            "created_at": info.get("created_at", ""),
-            "child_count": len(child_rows),
-            "root":       root,
-            "children":   child_rows,
-            "triage_info": root.get("triage_info"),
-        })
-    group_rows.sort(key=lambda g: (
-        _PRIO.get(g["priority"], 4),
-        g["created_at"],
-    ))
+        group_rows.append(
+            {
+                "group_id": gid,
+                "type": "group",
+                "priority": (info.get("priority") or root.get("severity") or "Unknown"),
+                "status": info.get("status", "active"),
+                "title": info.get("title") or root.get("title", ""),
+                "created_at": info.get("created_at", ""),
+                "child_count": len(child_rows),
+                "root": root,
+                "children": child_rows,
+                "triage_info": root.get("triage_info"),
+            }
+        )
+    group_rows.sort(
+        key=lambda g: (
+            _PRIO.get(g["priority"], 4),
+            g["created_at"],
+        )
+    )
 
     # Step 7: build standalone rows
     standalone_rows = []
     for bug in ungrouped_bugs:
         tid = bug.get("ticket_id", "")
-        b   = dict(bug)
-        b["type"]       = "standalone"
+        b = dict(bug)
+        b["type"] = "standalone"
         b["is_triaged"] = tid in triage_map
         b["triage_info"] = triage_map.get(tid)
         standalone_rows.append(b)
@@ -230,8 +207,7 @@ def _normalize_list_bug(ticket, connector) -> dict:
         "source": system_type,
         "source_id": source_id,
         "system_type": system_type,
-        "source_display_name": getattr(
-            connector, "display_name", connector.source_id),
+        "source_display_name": getattr(connector, "display_name", connector.source_id),
         "title": data.get("title", ""),
         "severity": data.get("severity") or "Unknown",
         "status": data.get("status") or "open",
@@ -247,12 +223,9 @@ def _normalize_list_bug(ticket, connector) -> dict:
 
 
 async def _fetch_buglist_for_connector(
-        connector,
-        status: str,
-        severity: str,
-        max_results: int) -> dict:
-    cached = await get_cached_buglist(
-        connector.source_id, status, severity)
+    connector, status: str, severity: str, max_results: int
+) -> dict:
+    cached = await get_cached_buglist(connector.source_id, status, severity)
     if cached is not None:
         return {
             "source_id": connector.source_id,
@@ -270,13 +243,10 @@ async def _fetch_buglist_for_connector(
             ),
             timeout=20.0,
         )
-        bugs = [
-            _normalize_list_bug(ticket, connector)
-            for ticket in (tickets or [])
-        ]
+        bugs = [_normalize_list_bug(ticket, connector) for ticket in (tickets or [])]
         await cache_buglist(
-            connector.source_id, status, severity, bugs,
-            ttl=REDIS_TTL_BUGLIST_SECONDS)
+            connector.source_id, status, severity, bugs, ttl=REDIS_TTL_BUGLIST_SECONDS
+        )
         return {
             "source_id": connector.source_id,
             "bugs": bugs,
@@ -298,6 +268,7 @@ async def _fetch_buglist_for_connector(
 
 # ── Public service function ───────────────────────────────────────
 
+
 async def get_bugs(
     page: int,
     page_size: int,
@@ -309,22 +280,22 @@ async def get_bugs(
     sort_order: str,
 ) -> dict:
     all_connectors = await ConnectorRegistry.get_all_enabled()
-    connectors = [
-        c for c in all_connectors
-        if c.system_type in _BUG_SOURCE_TYPES
-    ]
+    connectors = [c for c in all_connectors if c.system_type in _BUG_SOURCE_TYPES]
     if source:
         connectors = [
-            c for c in connectors
-            if c.source_id == source or c.system_type == source
+            c for c in connectors if c.source_id == source or c.system_type == source
         ]
 
     if not connectors:
         return {
-            "ungrouped": [], "groups": [],
-            "total": 0, "page": page,
-            "page_size": page_size, "sources_online": 0,
-            "sources_total": 0, "partial": False,
+            "ungrouped": [],
+            "groups": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "sources_online": 0,
+            "sources_total": 0,
+            "partial": False,
             "bugs": [],
             "source_errors": [],
             "message": "No connectors configured",
@@ -351,11 +322,13 @@ async def get_bugs(
     cache_statuses = []
     for connector, result in zip(connectors, fetch_results):
         if isinstance(result, Exception):
-            source_errors.append({
-                "source_id": connector.source_id,
-                "system_type": connector.system_type,
-                "message": str(result)[:300],
-            })
+            source_errors.append(
+                {
+                    "source_id": connector.source_id,
+                    "system_type": connector.system_type,
+                    "message": str(result)[:300],
+                }
+            )
             continue
 
         all_bugs.extend(result.get("bugs") or [])
@@ -389,21 +362,17 @@ async def get_bugs(
             desc = (b.get("description") or "")[:200].lower()
             if sl in desc:
                 return True
-            for label in (b.get("labels") or []):
+            for label in b.get("labels") or []:
                 if sl in str(label).lower():
                     return True
             return False
 
         all_bugs = [b for b in all_bugs if matches(b)]
     if severity:
-        all_bugs = [
-            b for b in all_bugs
-            if b.get("severity", "") == severity
-        ]
+        all_bugs = [b for b in all_bugs if b.get("severity", "") == severity]
     if status:
         all_bugs = [
-            b for b in all_bugs
-            if b.get("status", "").lower() == status.lower()
+            b for b in all_bugs if b.get("status", "").lower() == status.lower()
         ]
 
     # Fetch triage timestamps for all candidate bugs BEFORE pagination
@@ -416,7 +385,7 @@ async def get_bugs(
                     select(AuditLog.bug_id, AuditLog.created_at)
                     .where(
                         AuditLog.bug_id.in_(list(all_ticket_ids)),
-                        AuditLog.step == "pipeline_complete"
+                        AuditLog.step == "pipeline_complete",
                     )
                     .order_by(AuditLog.bug_id, desc(AuditLog.created_at))
                 )
@@ -424,7 +393,9 @@ async def get_bugs(
                 for row in result.all():
                     if row.bug_id not in seen:
                         seen.add(row.bug_id)
-                        triaged_timestamps[row.bug_id] = row.created_at.timestamp() if row.created_at else 0
+                        triaged_timestamps[row.bug_id] = (
+                            row.created_at.timestamp() if row.created_at else 0
+                        )
         except Exception as e:
             print(f"[BugList] pre-fetch triage timestamps failed: {e}", flush=True)
 
@@ -433,24 +404,22 @@ async def get_bugs(
         key=lambda b: (
             0 if b.get("ticket_id") in triaged_timestamps else 1,
             -triaged_timestamps.get(b.get("ticket_id"), 0),
-            SEVERITY_ORDER.get(b.get("severity", "Unknown"), 4)
+            SEVERITY_ORDER.get(b.get("severity", "Unknown"), 4),
         )
     )
-    total     = len(all_bugs)
+    total = len(all_bugs)
     start_idx = (page - 1) * page_size
-    page_bugs = all_bugs[start_idx: start_idx + page_size]
+    page_bugs = all_bugs[start_idx : start_idx + page_size]
 
     # Assemble grouped tree (all DB lookups are IN-queries)
     assembled: dict = {"ungrouped": [], "groups": []}
     try:
         async with AsyncSessionLocal() as db:
-            assembled = await assemble_grouped_bug_list(
-                raw_bugs=page_bugs, db=db)
+            assembled = await assemble_grouped_bug_list(raw_bugs=page_bugs, db=db)
     except Exception as e:
-        print(f"[BugList] assemble_grouped_bug_list failed: {e}",
-              flush=True)
+        print(f"[BugList] assemble_grouped_bug_list failed: {e}", flush=True)
         for bug in page_bugs:
-            bug["type"]       = "standalone"
+            bug["type"] = "standalone"
             bug["is_triaged"] = False
             bug["triage_info"] = None
         assembled = {"ungrouped": page_bugs, "groups": []}
@@ -474,16 +443,16 @@ async def get_bugs(
 
     response = {
         **assembled,
-        "bugs":          flat_bugs,
-        "total":         total,
-        "page":          page,
-        "page_size":     page_size,
+        "bugs": flat_bugs,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
         "sources_online": sources_online,
         "sources_total": len(connectors),
-        "partial":       bool(source_errors),
+        "partial": bool(source_errors),
         "source_errors": source_errors,
-        "cache_status":  cache_status,
-        "cached_at":     time.time(),
+        "cache_status": cache_status,
+        "cached_at": time.time(),
     }
 
     return response
@@ -496,42 +465,41 @@ async def get_bug_status(bug_id: str) -> dict:
 
     if not last_triage:
         return {
-            "is_new":           True,
-            "needs_retriage":   True,
-            "changes":          [],
-            "last_triaged_at":  None,
-            "last_severity":    None,
-            "last_confidence":  None,
+            "is_new": True,
+            "needs_retriage": True,
+            "changes": [],
+            "last_triaged_at": None,
+            "last_severity": None,
+            "last_confidence": None,
         }
 
-    summary           = last_triage.summary or {}
-    ticket_updated_at = summary.get("ticket_updated_at") or summary.get("updated_at", "")
-    last_severity     = summary.get("ticket_severity") or summary.get("severity", "")
-    last_status       = summary.get("ticket_status") or summary.get("status", "")
-    ai_severity       = summary.get("ai_severity") or summary.get("severity", "")
-    root_cause        = summary.get("root_cause", "")
-    last_confidence   = summary.get("confidence", 0)
-    last_triaged_at   = (
-        last_triage.created_at.isoformat()
-        if last_triage.created_at else None
+    summary = last_triage.summary or {}
+    ticket_updated_at = summary.get("ticket_updated_at") or summary.get(
+        "updated_at", ""
+    )
+    last_severity = summary.get("ticket_severity") or summary.get("severity", "")
+    last_status = summary.get("ticket_status") or summary.get("status", "")
+    ai_severity = summary.get("ai_severity") or summary.get("severity", "")
+    root_cause = summary.get("root_cause", "")
+    last_confidence = summary.get("confidence", 0)
+    last_triaged_at = (
+        last_triage.created_at.isoformat() if last_triage.created_at else None
     )
 
     # Step 1b: Resolve connector
     connector = None
     try:
-        connector = await ConnectorRegistry.get_connector(
-            last_triage.source_id or "")
+        connector = await ConnectorRegistry.get_connector(last_triage.source_id or "")
     except Exception:
         pass
 
     if not connector:
         try:
-            connectors  = await ConnectorRegistry.get_all_enabled()
-            bug_upper   = bug_id.upper()
-            sorted_c    = sorted(
-                connectors,
-                key=lambda c: len(c.ticket_prefix or ""),
-                reverse=True)
+            connectors = await ConnectorRegistry.get_all_enabled()
+            bug_upper = bug_id.upper()
+            sorted_c = sorted(
+                connectors, key=lambda c: len(c.ticket_prefix or ""), reverse=True
+            )
             for c in sorted_c:
                 prefix = (c.ticket_prefix or "").upper().strip()
                 if prefix and bug_upper.startswith(prefix):
@@ -542,45 +510,43 @@ async def get_bug_status(bug_id: str) -> dict:
 
     if not connector:
         return {
-            "is_new":           False,
-            "last_triaged_at":  last_triaged_at,
-            "last_severity":    last_severity,
+            "is_new": False,
+            "last_triaged_at": last_triaged_at,
+            "last_severity": last_severity,
             "last_ai_severity": ai_severity,
-            "last_confidence":  last_confidence,
-            "root_cause":       root_cause,
-            "case_id":          last_triage.case_id,
-            "changes":          [],
-            "needs_retriage":   None,
+            "last_confidence": last_confidence,
+            "root_cause": root_cause,
+            "case_id": last_triage.case_id,
+            "changes": [],
+            "needs_retriage": None,
         }
 
     # Step 2: Lightweight freshness check
     live = {}
     try:
-        live = await asyncio.wait_for(
-            connector.get_lightweight(bug_id),
-            timeout=8.0)
+        live = await asyncio.wait_for(connector.get_lightweight(bug_id), timeout=8.0)
     except Exception as e:
         structlog.get_logger().warning(
-            "get_lightweight failed",
-            bug_id=bug_id, error=str(e))
+            "get_lightweight failed", bug_id=bug_id, error=str(e)
+        )
 
     if not live:
         return {
-            "is_new":           False,
-            "last_triaged_at":  last_triaged_at,
-            "last_severity":    last_severity,
+            "is_new": False,
+            "last_triaged_at": last_triaged_at,
+            "last_severity": last_severity,
             "last_ai_severity": ai_severity,
-            "last_confidence":  last_confidence,
-            "root_cause":       root_cause,
-            "case_id":          last_triage.case_id,
-            "changes":          [],
-            "needs_retriage":   False,
+            "last_confidence": last_confidence,
+            "root_cause": root_cause,
+            "case_id": last_triage.case_id,
+            "changes": [],
+            "needs_retriage": False,
         }
 
     # Step 3: Decide path
     live_updated_at = live.get("updated_at", "")
-    live_severity   = live.get("severity", "")
-    live_status     = live.get("status", "")
+    live_severity = live.get("severity", "")
+    live_status = live.get("status", "")
 
     def to_datetime(val) -> datetime:
         if isinstance(val, datetime):
@@ -591,7 +557,7 @@ async def get_bug_status(bug_id: str) -> dict:
             s = str(val).strip()
             if s.endswith("Z"):
                 s = s[:-1] + "+00:00"
-            if len(s) > 5 and s[-5] in ('+', '-'):
+            if len(s) > 5 and s[-5] in ("+", "-"):
                 s = s[:-2] + ":" + s[-2:]
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
@@ -606,42 +572,45 @@ async def get_bug_status(bug_id: str) -> dict:
     no_change = (
         live_updated_dt <= last_triaged_dt
         and live_severity == last_severity
-        and live_status   == last_status
+        and live_status == last_status
     )
 
     if no_change:
         return {
-            "is_new":           False,
-            "last_triaged_at":  last_triaged_at,
-            "last_severity":    last_severity,
+            "is_new": False,
+            "last_triaged_at": last_triaged_at,
+            "last_severity": last_severity,
             "last_ai_severity": ai_severity,
-            "last_confidence":  last_confidence,
-            "root_cause":       root_cause,
-            "case_id":          last_triage.case_id,
-            "changes":          [],
-            "needs_retriage":   False,
+            "last_confidence": last_confidence,
+            "root_cause": root_cause,
+            "case_id": last_triage.case_id,
+            "changes": [],
+            "needs_retriage": False,
         }
 
     # Step 4: Change detected — fetch detailed changelog
     changelog = []
     try:
         changelog = await asyncio.wait_for(
-            connector.get_changelog(
-                bug_id, since=last_triaged_at),
-            timeout=10.0)
+            connector.get_changelog(bug_id, since=last_triaged_at), timeout=10.0
+        )
     except Exception:
         pass
 
     # Step 5: Filter and build response
     relevant = {
-        "priority", "status", "severity",
-        "assignee", "resolution", "description"
+        "priority",
+        "status",
+        "severity",
+        "assignee",
+        "resolution",
+        "description",
     }
     changes = [
         {
-            "field":      e.field,
-            "from":       e.old_value,
-            "to":         e.new_value,
+            "field": e.field,
+            "from": e.old_value,
+            "to": e.new_value,
             "changed_at": e.changed_at,
             "changed_by": e.changed_by,
         }
@@ -651,31 +620,35 @@ async def get_bug_status(bug_id: str) -> dict:
 
     if not changes:
         if live_severity and live_severity != last_severity:
-            changes.append({
-                "field":      "severity",
-                "from":       last_severity,
-                "to":         live_severity,
-                "changed_at": live_updated_at,
-                "changed_by": "",
-            })
+            changes.append(
+                {
+                    "field": "severity",
+                    "from": last_severity,
+                    "to": live_severity,
+                    "changed_at": live_updated_at,
+                    "changed_by": "",
+                }
+            )
         if live_status and live_status != last_status:
-            changes.append({
-                "field":      "status",
-                "from":       last_status,
-                "to":         live_status,
-                "changed_at": live_updated_at,
-                "changed_by": "",
-            })
+            changes.append(
+                {
+                    "field": "status",
+                    "from": last_status,
+                    "to": live_status,
+                    "changed_at": live_updated_at,
+                    "changed_by": "",
+                }
+            )
 
     return {
-        "is_new":           False,
-        "last_triaged_at":  last_triaged_at,
-        "last_severity":    last_severity,
+        "is_new": False,
+        "last_triaged_at": last_triaged_at,
+        "last_severity": last_severity,
         "last_ai_severity": ai_severity,
-        "last_confidence":  last_confidence,
-        "root_cause":       root_cause,
-        "case_id":          last_triage.case_id,
-        "id":               last_triage.id,
-        "changes":          changes,
-        "needs_retriage":   True,
+        "last_confidence": last_confidence,
+        "root_cause": root_cause,
+        "case_id": last_triage.case_id,
+        "id": last_triage.id,
+        "changes": changes,
+        "needs_retriage": True,
     }

@@ -10,11 +10,13 @@ async def login(email: str, password: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    token = create_access_token({
-        "sub": user.email,
-        "role": user.role,
-        "display_name": user.display_name,
-    })
+    token = create_access_token(
+        {
+            "sub": user.email,
+            "role": user.role,
+            "display_name": user.display_name,
+        }
+    )
     return {
         "access_token": token,
         "token_type": "bearer",

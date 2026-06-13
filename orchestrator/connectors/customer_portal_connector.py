@@ -20,10 +20,8 @@ class CustomerPortalConnector(BaseConnector):
         self.last_error: dict = {}
 
     async def search(
-            self,
-            query: str,
-            max_results: int = 5,
-            **kwargs) -> list[TicketData]:
+        self, query: str, max_results: int = 5, **kwargs
+    ) -> list[TicketData]:
         self.last_error = {}
         primary_ticket = kwargs.get("primary_ticket") or {}
         terms = self._build_query(query, primary_ticket)
@@ -33,8 +31,7 @@ class CustomerPortalConnector(BaseConnector):
         try:
             hn_task = self._search_hacker_news(terms, max_results)
             so_task = self._search_stackoverflow(terms, max_results)
-            gathered = await asyncio.gather(
-                hn_task, so_task, return_exceptions=True)
+            gathered = await asyncio.gather(hn_task, so_task, return_exceptions=True)
         except Exception as e:
             self.last_error = {
                 "source": self.source_id,
@@ -59,9 +56,8 @@ class CustomerPortalConnector(BaseConnector):
         seen: set[str] = set()
         unique: list[TicketData] = []
         for ticket in sorted(
-                signals,
-                key=lambda t: getattr(t, "signal_score", 0.0),
-                reverse=True):
+            signals, key=lambda t: getattr(t, "signal_score", 0.0), reverse=True
+        ):
             if ticket.ticket_id in seen:
                 continue
             seen.add(ticket.ticket_id)
@@ -96,9 +92,28 @@ class CustomerPortalConnector(BaseConnector):
         ]
         words = re.findall(r"[A-Za-z][A-Za-z0-9_.-]{2,}", " ".join(text_parts))
         stop = {
-            "the", "and", "for", "with", "from", "that", "this", "into",
-            "error", "issue", "bug", "failed", "failure", "cannot", "able",
-            "when", "while", "using", "update", "fix", "add", "remove",
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "that",
+            "this",
+            "into",
+            "error",
+            "issue",
+            "bug",
+            "failed",
+            "failure",
+            "cannot",
+            "able",
+            "when",
+            "while",
+            "using",
+            "update",
+            "fix",
+            "add",
+            "remove",
         }
         selected = []
         for word in words:
@@ -112,7 +127,8 @@ class CustomerPortalConnector(BaseConnector):
         return " ".join(selected)
 
     async def _search_hacker_news(
-            self, query: str, max_results: int) -> list[TicketData]:
+        self, query: str, max_results: int
+    ) -> list[TicketData]:
         params = {
             "query": query,
             "tags": "story,comment",
@@ -135,29 +151,36 @@ class CustomerPortalConnector(BaseConnector):
             comments = int(hit.get("num_comments") or 0)
             severity = self._hn_severity(points, comments)
             score = self._score_hn(points, comments)
-            url = hit.get("url") or hit.get("story_url") or (
-                f"https://news.ycombinator.com/item?id={hit.get('objectID')}"
+            url = (
+                hit.get("url")
+                or hit.get("story_url")
+                or (f"https://news.ycombinator.com/item?id={hit.get('objectID')}")
             )
             summary = self._clean_html(
-                hit.get("comment_text") or hit.get("story_text") or title)
-            tickets.append(self._ticket(
-                case_id=f"HN-{hit.get('objectID')}",
-                source="Hacker News",
-                customer_name=hit.get("author") or "HN user",
-                severity=severity,
-                status="discussion",
-                summary=title,
-                impact=(
-                    f"Developer discussion with {points} points and "
-                    f"{comments} comments. {summary[:180]}").strip(),
-                url=url,
-                linked_ticket_id=hit.get("story_id") or hit.get("objectID"),
-                signal_score=score,
-            ))
+                hit.get("comment_text") or hit.get("story_text") or title
+            )
+            tickets.append(
+                self._ticket(
+                    case_id=f"HN-{hit.get('objectID')}",
+                    source="Hacker News",
+                    customer_name=hit.get("author") or "HN user",
+                    severity=severity,
+                    status="discussion",
+                    summary=title,
+                    impact=(
+                        f"Developer discussion with {points} points and "
+                        f"{comments} comments. {summary[:180]}"
+                    ).strip(),
+                    url=url,
+                    linked_ticket_id=hit.get("story_id") or hit.get("objectID"),
+                    signal_score=score,
+                )
+            )
         return tickets
 
     async def _search_stackoverflow(
-            self, query: str, max_results: int) -> list[TicketData]:
+        self, query: str, max_results: int
+    ) -> list[TicketData]:
         params = {
             "order": "desc",
             "sort": "relevance",
@@ -179,34 +202,38 @@ class CustomerPortalConnector(BaseConnector):
             signal_score = self._score_so(views, score)
             owner = item.get("owner") or {}
             summary = self._clean_html(item.get("body", ""))
-            tickets.append(self._ticket(
-                case_id=f"SO-{item.get('question_id')}",
-                source="Stack Overflow",
-                customer_name=owner.get("display_name") or "StackOverflow user",
-                severity=severity,
-                status="answered" if item.get("is_answered") else "open",
-                summary=self._clean_html(item.get("title", "")),
-                impact=(
-                    f"Question has {views} views and score {score}. "
-                    f"{summary[:180]}").strip(),
-                url=item.get("link", ""),
-                linked_ticket_id=item.get("question_id"),
-                signal_score=signal_score,
-            ))
+            tickets.append(
+                self._ticket(
+                    case_id=f"SO-{item.get('question_id')}",
+                    source="Stack Overflow",
+                    customer_name=owner.get("display_name") or "StackOverflow user",
+                    severity=severity,
+                    status="answered" if item.get("is_answered") else "open",
+                    summary=self._clean_html(item.get("title", "")),
+                    impact=(
+                        f"Question has {views} views and score {score}. "
+                        f"{summary[:180]}"
+                    ).strip(),
+                    url=item.get("link", ""),
+                    linked_ticket_id=item.get("question_id"),
+                    signal_score=signal_score,
+                )
+            )
         return tickets
 
     def _ticket(
-            self,
-            case_id: str,
-            source: str,
-            customer_name: str,
-            severity: str,
-            status: str,
-            summary: str,
-            impact: str,
-            url: str,
-            linked_ticket_id,
-            signal_score: float) -> TicketData:
+        self,
+        case_id: str,
+        source: str,
+        customer_name: str,
+        severity: str,
+        status: str,
+        summary: str,
+        impact: str,
+        url: str,
+        linked_ticket_id,
+        signal_score: float,
+    ) -> TicketData:
         ticket = TicketData(
             ticket_id=case_id,
             title=summary or source,

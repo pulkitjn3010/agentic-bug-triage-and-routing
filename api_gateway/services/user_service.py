@@ -35,7 +35,11 @@ async def create_user(
             raise HTTPException(status_code=409, detail="User already exists")
         user = await create_user_repo(db, email, password, role, display_name)
         await db.commit()
-    return {"user_id": user.user_id, "role": user.role, "display_name": user.display_name or ""}
+    return {
+        "user_id": user.user_id,
+        "role": user.role,
+        "display_name": user.display_name or "",
+    }
 
 
 async def delete_user(email: str) -> dict:

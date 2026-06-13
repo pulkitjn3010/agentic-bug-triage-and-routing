@@ -80,9 +80,7 @@ def install_fake_source_registry(monkeypatch, rows):
     session_module = types.ModuleType("orchestrator.db.session")
     session_module.AsyncSessionLocal = lambda: FakeSession()
 
-    repository_module = types.ModuleType(
-        "orchestrator.db.repositories.source_registry"
-    )
+    repository_module = types.ModuleType("orchestrator.db.repositories.source_registry")
 
     async def get_enabled_sources(_db):
         return [row for row in rows if row.enabled]
@@ -113,11 +111,14 @@ def install_fake_connectors(monkeypatch, mapping=None):
 
 
 def test_get_all_enabled_returns_only_enabled_connectors(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-storage", "jira", "STO", enabled=True),
-        SourceRow("github-disabled", "github", "GH", enabled=False),
-        SourceRow("bugzilla-fw", "bugzilla", "BZ", enabled=True),
-    ])
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-storage", "jira", "STO", enabled=True),
+            SourceRow("github-disabled", "github", "GH", enabled=False),
+            SourceRow("bugzilla-fw", "bugzilla", "BZ", enabled=True),
+        ],
+    )
     install_fake_connectors(monkeypatch)
 
     connectors = run(registry.ConnectorRegistry.get_all_enabled())
@@ -129,9 +130,12 @@ def test_get_all_enabled_returns_only_enabled_connectors(monkeypatch):
 
 
 def test_disabled_connectors_are_skipped(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-disabled", "jira", "STO", enabled=False),
-    ])
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-disabled", "jira", "STO", enabled=False),
+        ],
+    )
     install_fake_connectors(monkeypatch)
 
     connectors = run(registry.ConnectorRegistry.get_all_enabled())
@@ -140,14 +144,20 @@ def test_disabled_connectors_are_skipped(monkeypatch):
 
 
 def test_broken_connector_initialization_does_not_crash_registry(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-storage", "jira", "STO", enabled=True),
-        SourceRow("broken-source", "broken", "BAD", enabled=True),
-        SourceRow("github-hpe", "github", "GH", enabled=True),
-    ])
-    install_fake_connectors(monkeypatch, {
-        "broken": BrokenInitConnector,
-    })
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-storage", "jira", "STO", enabled=True),
+            SourceRow("broken-source", "broken", "BAD", enabled=True),
+            SourceRow("github-hpe", "github", "GH", enabled=True),
+        ],
+    )
+    install_fake_connectors(
+        monkeypatch,
+        {
+            "broken": BrokenInitConnector,
+        },
+    )
 
     connectors = run(registry.ConnectorRegistry.get_all_enabled())
 
@@ -158,10 +168,13 @@ def test_broken_connector_initialization_does_not_crash_registry(monkeypatch):
 
 
 def test_get_returns_correct_connector(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-storage", "jira", "STO", enabled=True),
-        SourceRow("github-hpe", "github", "GH", enabled=True),
-    ])
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-storage", "jira", "STO", enabled=True),
+            SourceRow("github-hpe", "github", "GH", enabled=True),
+        ],
+    )
     install_fake_connectors(monkeypatch)
 
     connector = run(registry.ConnectorRegistry.get("github-hpe"))
@@ -172,10 +185,13 @@ def test_get_returns_correct_connector(monkeypatch):
 
 
 def test_get_by_ticket_id_resolves_by_ticket_prefix(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-network", "jira", "NET", enabled=True),
-        SourceRow("jira-storage", "jira", "STO", enabled=True),
-    ])
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-network", "jira", "NET", enabled=True),
+            SourceRow("jira-storage", "jira", "STO", enabled=True),
+        ],
+    )
     install_fake_connectors(monkeypatch)
 
     connector = run(registry.ConnectorRegistry.get_by_ticket_id("STO-1089"))
@@ -190,14 +206,20 @@ def test_support_kb_is_mapped_as_first_class_connector_type():
 
 
 def test_health_check_all_returns_status_per_enabled_connector(monkeypatch):
-    install_fake_source_registry(monkeypatch, [
-        SourceRow("jira-storage", "jira", "STO", enabled=True),
-        SourceRow("github-hpe", "github", "GH", enabled=True),
-        SourceRow("portal-disabled", "customer_portal", "CASE", enabled=False),
-    ])
-    install_fake_connectors(monkeypatch, {
-        "github": FailingHealthConnector,
-    })
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow("jira-storage", "jira", "STO", enabled=True),
+            SourceRow("github-hpe", "github", "GH", enabled=True),
+            SourceRow("portal-disabled", "customer_portal", "CASE", enabled=False),
+        ],
+    )
+    install_fake_connectors(
+        monkeypatch,
+        {
+            "github": FailingHealthConnector,
+        },
+    )
 
     statuses = run(registry.ConnectorRegistry.health_check_all(timeout=1))
 

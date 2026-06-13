@@ -7,9 +7,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> UserRole | None:
-    result = await session.execute(
-        select(UserRole).where(UserRole.user_id == email)
-    )
+    result = await session.execute(select(UserRole).where(UserRole.user_id == email))
     return result.scalar_one_or_none()
 
 

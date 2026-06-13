@@ -16,8 +16,14 @@ SEVERITY_LABEL_MAP = {
 }
 
 SKIP_LABELS = {
-    "bug", "enhancement", "question", "good first issue",
-    "help wanted", "wontfix", "duplicate", "invalid",
+    "bug",
+    "enhancement",
+    "question",
+    "good first issue",
+    "help wanted",
+    "wontfix",
+    "duplicate",
+    "invalid",
 }
 
 
@@ -58,7 +64,9 @@ class GithubConnector(BaseConnector):
 
         body = raw.get("body") or ""
         linked = re.findall(r"#(\d+)", body)
-        linked_items = [{"id": num, "type": "issue_ref", "title": ""} for num in linked[:10]]
+        linked_items = [
+            {"id": num, "type": "issue_ref", "title": ""} for num in linked[:10]
+        ]
 
         return TicketData(
             ticket_id=str(raw.get("number", "")),
@@ -94,18 +102,30 @@ class GithubConnector(BaseConnector):
         except Exception:
             return None
 
-    async def search(self, query: str, max_results: int = 300, page: int = 1) -> list[TicketData]:
-        MAX_PAGES = 20 # 2000 bugs ceiling for GitHub to avoid heavy rate limits
+    async def search(
+        self, query: str, max_results: int = 300, page: int = 1
+    ) -> list[TicketData]:
+        MAX_PAGES = 20  # 2000 bugs ceiling for GitHub to avoid heavy rate limits
         per_page = 100
-        
+
         async def fetch_page(p: int, client: httpx.AsyncClient):
             if query:
                 url = f"https://api.github.com/search/issues"
-                params = {"q": f"{query}+repo:{self._repo()}+is:issue+is:open", "per_page": per_page, "page": p}
+                params = {
+                    "q": f"{query}+repo:{self._repo()}+is:issue+is:open",
+                    "per_page": per_page,
+                    "page": p,
+                }
             else:
                 url = f"https://api.github.com/repos/{self._repo()}/issues"
-                params = {"state": "open", "per_page": per_page, "page": p, "sort": "updated", "direction": "desc"}
-            
+                params = {
+                    "state": "open",
+                    "per_page": per_page,
+                    "page": p,
+                    "sort": "updated",
+                    "direction": "desc",
+                }
+
             resp = await client.get(url, headers=self._headers(), params=params)
             if resp.status_code != 200:
                 return []
@@ -120,19 +140,26 @@ class GithubConnector(BaseConnector):
                 # To be fast but respect GitHub limits, we'll fetch in batches of 5 pages
                 all_raw_items = []
                 for batch_start in range(1, MAX_PAGES + 1, 5):
-                    tasks = [fetch_page(p, client) for p in range(batch_start, batch_start + 5)]
+                    tasks = [
+                        fetch_page(p, client)
+                        for p in range(batch_start, batch_start + 5)
+                    ]
                     batch_results = await asyncio.gather(*tasks)
-                    
+
                     batch_had_full_page = False
                     for page_items in batch_results:
                         all_raw_items.extend(page_items)
                         if len(page_items) == per_page:
                             batch_had_full_page = True
-                            
+
                     if not batch_had_full_page:
-                        break # We reached the end
-                        
-                return [self._normalise(i) for i in all_raw_items if i.get("pull_request") is None]
+                        break  # We reached the end
+
+                return [
+                    self._normalise(i)
+                    for i in all_raw_items
+                    if i.get("pull_request") is None
+                ]
         except Exception as e:
             print(f"[GITHUB] Search error: {e}")
             return []
@@ -167,49 +194,57 @@ class GithubConnector(BaseConnector):
 
     def extract_links(self, raw_payload: dict) -> list[dict]:
         import re
+
         links = []
         body = raw_payload.get("body") or ""
         repo = self._repo()  # e.g. "apache/spark"
 
         # 1. External URLs in body (JIRA, Bugzilla)
-        for url in re.findall(
-                r'https?://[^\s<>"]+', body):
+        for url in re.findall(r'https?://[^\s<>"]+', body):
             # JIRA issue URL pattern
             if "issues.apache.org" in url or "jira." in url:
-                m = re.search(r'/browse/([A-Z]{2,10}-\d+)', url)
+                m = re.search(r"/browse/([A-Z]{2,10}-\d+)", url)
                 if m:
-                    links.append({
-                        "raw_id": m.group(1),
-                        "source": "JIRA",
-                        "relationship": "Linked Reference",
-                        "url": url,
-                    })
+                    links.append(
+                        {
+                            "raw_id": m.group(1),
+                            "source": "JIRA",
+                            "relationship": "Linked Reference",
+                            "url": url,
+                        }
+                    )
             # Bugzilla URL pattern
             elif "bugzilla" in url and "id=" in url:
                 bz_id = url.split("id=")[-1].split("&")[0]
                 if bz_id.isdigit():
-                    links.append({
-                        "raw_id": bz_id,
-                        "source": "Bugzilla",
-                        "relationship": "See Also",
-                        "url": url,
-                    })
+                    links.append(
+                        {
+                            "raw_id": bz_id,
+                            "source": "Bugzilla",
+                            "relationship": "See Also",
+                            "url": url,
+                        }
+                    )
 
         # 2. Internal issue/PR references: "Closes #22378",
         #    "Fixes #1234", "Related to #5678", "#9012"
         for match in re.finditer(
-                r'(?:Closes?|Fixes?|Resolves?|Related\s+to'
-                r'|See\s+also|dup\s+of|duplicate\s+of)?\s*'
-                r'#(\d{3,6})\b',
-                body, re.IGNORECASE):
+            r"(?:Closes?|Fixes?|Resolves?|Related\s+to"
+            r"|See\s+also|dup\s+of|duplicate\s+of)?\s*"
+            r"#(\d{3,6})\b",
+            body,
+            re.IGNORECASE,
+        ):
             ref_id = match.group(1)
             issue_num = str(raw_payload.get("number", ""))
             if ref_id != issue_num:
-                links.append({
-                    "raw_id": ref_id,
-                    "source": "GitHub",
-                    "relationship": "Mentioned Issue/PR",
-                })
+                links.append(
+                    {
+                        "raw_id": ref_id,
+                        "source": "GitHub",
+                        "relationship": "Mentioned Issue/PR",
+                    }
+                )
 
         # Deduplicate
         seen = set()
@@ -232,13 +267,19 @@ class GithubConnector(BaseConnector):
                     created = ev.get("created_at", "")
                     if since and created <= since:
                         continue
-                    changes.append(ChangeEvent(
-                        field=ev.get("event", ""),
-                        old_value="",
-                        new_value=str(ev.get("label", {}).get("name", "") if ev.get("label") else ""),
-                        changed_at=created,
-                        changed_by=(ev.get("actor") or {}).get("login", ""),
-                    ))
+                    changes.append(
+                        ChangeEvent(
+                            field=ev.get("event", ""),
+                            old_value="",
+                            new_value=str(
+                                ev.get("label", {}).get("name", "")
+                                if ev.get("label")
+                                else ""
+                            ),
+                            changed_at=created,
+                            changed_by=(ev.get("actor") or {}).get("login", ""),
+                        )
+                    )
                 return changes
         except Exception:
             return []

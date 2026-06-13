@@ -39,10 +39,14 @@ class BugzillaConnector(BaseConnector):
 
         priority_raw = raw.get("priority", "--")
         severity_raw = raw.get("severity", "--")
-        severity = BZ_PRIORITY_MAP.get(priority_raw, None) or BZ_PRIORITY_MAP.get(severity_raw, "Unknown")
+        severity = BZ_PRIORITY_MAP.get(priority_raw, None) or BZ_PRIORITY_MAP.get(
+            severity_raw, "Unknown"
+        )
 
         see_also = raw.get("see_also") or []
-        linked_items = [{"id": str(s), "type": "see_also", "title": ""} for s in see_also]
+        linked_items = [
+            {"id": str(s), "type": "see_also", "title": ""} for s in see_also
+        ]
 
         description = raw.get("description", "") or ""
 
@@ -98,7 +102,10 @@ class BugzillaConnector(BaseConnector):
                         ("status", "REOPENED"),
                         ("limit", str(max_results)),
                         ("order", "changeddate DESC"),
-                        ("include_fields", "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also"),
+                        (
+                            "include_fields",
+                            "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also",
+                        ),
                     ]
                 else:
                     url = f"{self.base_url}/rest/bug"
@@ -106,7 +113,10 @@ class BugzillaConnector(BaseConnector):
                         ("product", self.project_key),
                         ("quicksearch", query),
                         ("limit", str(max_results)),
-                        ("include_fields", "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also"),
+                        (
+                            "include_fields",
+                            "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also",
+                        ),
                     ]
                 resp = await client.get(url, headers=self._headers(), params=params)
                 resp.raise_for_status()
@@ -144,6 +154,7 @@ class BugzillaConnector(BaseConnector):
 
     def extract_links(self, raw_payload: dict) -> list[dict]:
         import re
+
         links = []
         bugs = raw_payload.get("bugs") or []
         if not bugs:
@@ -151,39 +162,47 @@ class BugzillaConnector(BaseConnector):
         bug = bugs[0]
 
         # 1. depends_on and blocks — direct Bugzilla dependencies
-        for dep_id in (bug.get("depends_on") or []):
-            links.append({
-                "raw_id": str(dep_id),
-                "source": "Bugzilla",
-                "relationship": "Depends On",
-            })
-        for block_id in (bug.get("blocks") or []):
-            links.append({
-                "raw_id": str(block_id),
-                "source": "Bugzilla",
-                "relationship": "Blocks",
-            })
+        for dep_id in bug.get("depends_on") or []:
+            links.append(
+                {
+                    "raw_id": str(dep_id),
+                    "source": "Bugzilla",
+                    "relationship": "Depends On",
+                }
+            )
+        for block_id in bug.get("blocks") or []:
+            links.append(
+                {
+                    "raw_id": str(block_id),
+                    "source": "Bugzilla",
+                    "relationship": "Blocks",
+                }
+            )
 
         # 2. see_also — external URLs
-        for url in (bug.get("see_also") or []):
+        for url in bug.get("see_also") or []:
             if "issues.apache.org" in url or "jira." in url:
-                m = re.search(r'/browse/([A-Z]{2,10}-\d+)', url)
+                m = re.search(r"/browse/([A-Z]{2,10}-\d+)", url)
                 if m:
-                    links.append({
-                        "raw_id": m.group(1),
-                        "source": "JIRA",
-                        "relationship": "See Also",
-                        "url": url,
-                    })
+                    links.append(
+                        {
+                            "raw_id": m.group(1),
+                            "source": "JIRA",
+                            "relationship": "See Also",
+                            "url": url,
+                        }
+                    )
             elif "github.com" in url and "/issues/" in url:
                 issue_id = url.rstrip("/").split("/")[-1]
                 if issue_id.isdigit():
-                    links.append({
-                        "raw_id": issue_id,
-                        "source": "GitHub",
-                        "relationship": "See Also",
-                        "url": url,
-                    })
+                    links.append(
+                        {
+                            "raw_id": issue_id,
+                            "source": "GitHub",
+                            "relationship": "See Also",
+                            "url": url,
+                        }
+                    )
 
         # Deduplicate
         seen = set()
@@ -210,13 +229,15 @@ class BugzillaConnector(BaseConnector):
                             continue
                         who = entry.get("who", "")
                         for ch in entry.get("changes") or []:
-                            changes.append(ChangeEvent(
-                                field=ch.get("field_name", ""),
-                                old_value=ch.get("removed", ""),
-                                new_value=ch.get("added", ""),
-                                changed_at=when,
-                                changed_by=who,
-                            ))
+                            changes.append(
+                                ChangeEvent(
+                                    field=ch.get("field_name", ""),
+                                    old_value=ch.get("removed", ""),
+                                    new_value=ch.get("added", ""),
+                                    changed_at=when,
+                                    changed_by=who,
+                                )
+                            )
                 return changes
         except Exception:
             return []

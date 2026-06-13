@@ -42,7 +42,9 @@ async def get_last_triage_by_case_id(db: AsyncSession, case_id: str) -> AuditLog
     return result.scalar_one_or_none()
 
 
-async def list_recent_pipeline_completions(db: AsyncSession, limit: int = 50) -> list[AuditLog]:
+async def list_recent_pipeline_completions(
+    db: AsyncSession, limit: int = 50
+) -> list[AuditLog]:
     result = await db.execute(
         select(AuditLog)
         .where(AuditLog.step == "pipeline_complete")

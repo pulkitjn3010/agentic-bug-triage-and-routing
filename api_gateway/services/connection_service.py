@@ -18,14 +18,14 @@ from orchestrator.db.session import AsyncSessionLocal
 # ── Helpers (exact copies from settings_routes.py) ────────────────
 
 SYSTEM_TYPE_LABELS = {
-    "github":          {"label": "GitHub",           "icon": "GH",   "color": "purple"},
-    "jira":            {"label": "JIRA",             "icon": "J",    "color": "blue"},
-    "jira_apache":     {"label": "Apache JIRA",      "icon": "J",    "color": "blue"},
-    "jira_cloud":      {"label": "JIRA Cloud",       "icon": "J",    "color": "blue"},
-    "bugzilla":        {"label": "Bugzilla",         "icon": "BZ",   "color": "amber"},
-    "confluence":      {"label": "Confluence",       "icon": "CF",   "color": "teal"},
-    "customer_portal": {"label": "Customer Portal",  "icon": "CP",   "color": "green"},
-    "support_kb":      {"label": "Support KB",       "icon": "KB",   "color": "teal"},
+    "github": {"label": "GitHub", "icon": "GH", "color": "purple"},
+    "jira": {"label": "JIRA", "icon": "J", "color": "blue"},
+    "jira_apache": {"label": "Apache JIRA", "icon": "J", "color": "blue"},
+    "jira_cloud": {"label": "JIRA Cloud", "icon": "J", "color": "blue"},
+    "bugzilla": {"label": "Bugzilla", "icon": "BZ", "color": "amber"},
+    "confluence": {"label": "Confluence", "icon": "CF", "color": "teal"},
+    "customer_portal": {"label": "Customer Portal", "icon": "CP", "color": "green"},
+    "support_kb": {"label": "Support KB", "icon": "KB", "color": "teal"},
 }
 
 
@@ -63,7 +63,9 @@ def _health_status_from_result(result: dict | None, enabled: bool) -> str:
         return "Connected"
     if result.get("connected") is False or result.get("is_connected") is False:
         return "Disconnected"
-    nested = result.get("test_result") if isinstance(result.get("test_result"), dict) else {}
+    nested = (
+        result.get("test_result") if isinstance(result.get("test_result"), dict) else {}
+    )
     if nested:
         nested_status = _health_status_from_result(nested, enabled)
         if nested_status:
@@ -81,36 +83,39 @@ def _health_status_from_result(result: dict | None, enabled: bool) -> str:
 
 
 def _format_source(s, health: dict | None = None) -> dict:
-    meta = SYSTEM_TYPE_LABELS.get(s.system_type, {"label": s.system_type, "icon": "?", "color": "gray"})
+    meta = SYSTEM_TYPE_LABELS.get(
+        s.system_type, {"label": s.system_type, "icon": "?", "color": "gray"}
+    )
     token_env_var = s.auth_secret_ref or ""
     token_present = bool(os.environ.get(token_env_var, ""))
     access_type = _access_type_for_source(s, token_present)
     health_status = _health_status_from_result(health, s.enabled)
     return {
-        "source_id":       s.source_id,
-        "display_name":    s.display_name,
-        "system_type":     s.system_type,
-        "system_label":    meta["label"],
-        "icon":            meta["icon"],
-        "color":           meta["color"],
-        "base_url":        s.base_url,
-        "port":            s.port,
-        "auth_type":       s.auth_type,
-        "project_key":     s.project_key or "",
-        "ticket_prefix":   s.ticket_prefix or "",
+        "source_id": s.source_id,
+        "display_name": s.display_name,
+        "system_type": s.system_type,
+        "system_label": meta["label"],
+        "icon": meta["icon"],
+        "color": meta["color"],
+        "base_url": s.base_url,
+        "port": s.port,
+        "auth_type": s.auth_type,
+        "project_key": s.project_key or "",
+        "ticket_prefix": s.ticket_prefix or "",
         "auth_secret_ref": token_env_var,
-        "token_present":   token_present,
-        "token_masked":    "••••••••" if token_present else "(not set — public API)",
-        "access_type":     access_type,
-        "health_status":   health_status,
-        "health_error":    (health or {}).get("error", ""),
-        "latency_ms":      (health or {}).get("latency_ms", 0),
-        "enabled":         s.enabled,
-        "created_at":      s.created_at.isoformat() if s.created_at else "",
+        "token_present": token_present,
+        "token_masked": "••••••••" if token_present else "(not set — public API)",
+        "access_type": access_type,
+        "health_status": health_status,
+        "health_error": (health or {}).get("error", ""),
+        "latency_ms": (health or {}).get("latency_ms", 0),
+        "enabled": s.enabled,
+        "created_at": s.created_at.isoformat() if s.created_at else "",
     }
 
 
 # ── Public service function ───────────────────────────────────────
+
 
 async def create_connection(
     display_name: str,
@@ -124,14 +129,18 @@ async def create_connection(
 ) -> dict:
     source_id = re.sub(r"[^a-z0-9]+", "-", display_name.lower()).strip("-")
     source_id = f"{source_id}-{system_type}"
-    env_var_name = re.sub(r"[^A-Z0-9]+", "_", display_name.upper()).strip("_") + "_TOKEN"
+    env_var_name = (
+        re.sub(r"[^A-Z0-9]+", "_", display_name.upper()).strip("_") + "_TOKEN"
+    )
 
     # SIDE EFFECT: env mutation happens before DB write — no rollback if DB write fails
     if auth_token:
         os.environ[env_var_name] = auth_token
 
     if system_type not in SYSTEM_TYPE_TO_CLASS:
-        raise HTTPException(status_code=400, detail=f"Unknown system_type: {system_type}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown system_type: {system_type}"
+        )
 
     cls = SYSTEM_TYPE_TO_CLASS[system_type]
     test_connector = cls(
@@ -159,19 +168,24 @@ async def create_connection(
     async with AsyncSessionLocal() as db:
         existing = await get_source_by_id(db, source_id)
         if existing:
-            raise HTTPException(status_code=409, detail=f"Connection '{source_id}' already exists")
-        new_source = await create_source(db, {
-            "source_id":       source_id,
-            "display_name":    display_name,
-            "system_type":     system_type,
-            "base_url":        base_url,
-            "port":            port,
-            "auth_type":       auth_type or "bearer_token",
-            "auth_secret_ref": env_var_name,
-            "project_key":     project_key or "",
-            "ticket_prefix":   ticket_prefix or "",
-            "enabled":         True,
-        })
+            raise HTTPException(
+                status_code=409, detail=f"Connection '{source_id}' already exists"
+            )
+        new_source = await create_source(
+            db,
+            {
+                "source_id": source_id,
+                "display_name": display_name,
+                "system_type": system_type,
+                "base_url": base_url,
+                "port": port,
+                "auth_type": auth_type or "bearer_token",
+                "auth_secret_ref": env_var_name,
+                "project_key": project_key or "",
+                "ticket_prefix": ticket_prefix or "",
+                "enabled": True,
+            },
+        )
         result = _format_source(new_source)
 
     ConnectorRegistry.invalidate_cache()
@@ -196,8 +210,7 @@ async def list_connections() -> dict:
         health_by_source = {}
 
     connections = [
-        _format_source(s, health_by_source.get(s.source_id))
-        for s in sources
+        _format_source(s, health_by_source.get(s.source_id)) for s in sources
     ]
     return {
         "connections": connections,
@@ -217,7 +230,9 @@ async def test_connection(source_id: str) -> dict:
 
     cls = SYSTEM_TYPE_TO_CLASS.get(source.system_type)
     if not cls:
-        raise HTTPException(status_code=400, detail=f"No connector for type: {source.system_type}")
+        raise HTTPException(
+            status_code=400, detail=f"No connector for type: {source.system_type}"
+        )
 
     token = os.environ.get(source.auth_secret_ref or "", "")
     connector = cls(

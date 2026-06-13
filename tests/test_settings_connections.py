@@ -48,7 +48,9 @@ def test_access_type_authenticated_for_auth_config():
         auth_type="pat",
         auth_secret_ref="KAFKA_TOKEN",
     )
-    assert _access_type_for_source(authenticated, token_present=False) == "Authenticated"
+    assert (
+        _access_type_for_source(authenticated, token_present=False) == "Authenticated"
+    )
 
 
 def test_health_status_maps_connector_health():
@@ -56,10 +58,16 @@ def test_health_status_maps_connector_health():
     assert _health_status_from_result({"status": "connected"}, True) == "Connected"
     assert _health_status_from_result({"connected": True}, True) == "Connected"
     assert _health_status_from_result({"is_connected": True}, True) == "Connected"
-    assert _health_status_from_result({"test_result": {"status": "ok"}}, True) == "Connected"
+    assert (
+        _health_status_from_result({"test_result": {"status": "ok"}}, True)
+        == "Connected"
+    )
     assert _health_status_from_result({"status": "timeout"}, True) == "Timeout"
     assert _health_status_from_result({"status": "error"}, True) == "Error"
-    assert _health_status_from_result({"ok": True, "status": "ok"}, False) == "Disconnected"
+    assert (
+        _health_status_from_result({"ok": True, "status": "ok"}, False)
+        == "Disconnected"
+    )
     assert _health_status_from_result(None, True) == ""
 
 
