@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from api_gateway.routes.settings_routes import (
+from api_gateway.services.connection_service import (
     _access_type_for_source,
     _format_source,
     _health_status_from_result,
