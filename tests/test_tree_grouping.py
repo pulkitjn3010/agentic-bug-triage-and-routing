@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from api_gateway.routes.cases_routes import assemble_grouped_bug_list
+from api_gateway.services.bug_service import assemble_grouped_bug_list
 from orchestrator.db.models import (
     AuditLog,
     BugGroupMapping,

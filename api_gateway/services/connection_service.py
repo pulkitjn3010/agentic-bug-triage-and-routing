@@ -266,3 +266,93 @@ async def test_connection(source_id: str) -> dict:
             "token_present": bool(token),
             "health_status": health_status,
         }
+
+
+async def update_connection(source_id: str, body_dict: dict) -> dict:
+    from orchestrator.db.repositories.source_registry import update_source
+
+    async with AsyncSessionLocal() as db:
+        source = await get_source_by_id(db, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        updates = {}
+        if body_dict.get("display_name") is not None:
+            updates["display_name"] = body_dict["display_name"]
+        if body_dict.get("base_url") is not None:
+            updates["base_url"] = body_dict["base_url"].rstrip("/")
+        if body_dict.get("port") is not None:
+            updates["port"] = body_dict["port"]
+        if body_dict.get("auth_type") is not None:
+            updates["auth_type"] = body_dict["auth_type"]
+        if body_dict.get("project_key") is not None:
+            updates["project_key"] = body_dict["project_key"]
+        if body_dict.get("ticket_prefix") is not None:
+            updates["ticket_prefix"] = body_dict["ticket_prefix"]
+        if body_dict.get("enabled") is not None:
+            updates["enabled"] = body_dict["enabled"]
+
+        new_token = body_dict.get("auth_token") or body_dict.get("token")
+        if new_token:
+            env_var = source.auth_secret_ref or ""
+            if env_var:
+                os.environ[env_var] = new_token
+
+        if updates:
+            await update_source(db, source_id, updates)
+            source = await get_source_by_id(db, source_id)
+
+    ConnectorRegistry.invalidate_cache()
+    return {"connection": _format_source(source), "status": "updated"}
+
+
+async def remove_connection(source_id: str) -> dict:
+    from orchestrator.db.repositories.source_registry import set_source_enabled
+
+    async with AsyncSessionLocal() as db:
+        source = await get_source_by_id(db, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        await set_source_enabled(db, source_id, False)
+
+    ConnectorRegistry.invalidate_cache()
+    return {"status": "disabled", "source_id": source_id}
+
+
+async def update_connection_legacy(source_id: str, payload: dict) -> dict:
+    try:
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import update as sql_update
+            from orchestrator.db.models import SourceRegistry
+
+            update_data = {}
+            if "display_name" in payload:
+                update_data["display_name"] = payload["display_name"]
+            if "base_url" in payload:
+                update_data["base_url"] = payload["base_url"].rstrip("/")
+            if "project_key" in payload:
+                update_data["project_key"] = payload["project_key"]
+            if "ticket_prefix" in payload:
+                update_data["ticket_prefix"] = payload["ticket_prefix"]
+            if "token" in payload and payload["token"]:
+                secret_ref = f"{source_id}_token".upper()
+                os.environ[secret_ref] = payload["token"]
+                update_data["auth_secret_ref"] = secret_ref
+
+            if not update_data:
+                raise HTTPException(status_code=400, detail="No fields to update")
+
+            await db.execute(
+                sql_update(SourceRegistry)
+                .where(SourceRegistry.source_id == source_id)
+                .values(**update_data)
+            )
+            await db.commit()
+
+        ConnectorRegistry.invalidate_cache()
+        return {"status": "updated", "source_id": source_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

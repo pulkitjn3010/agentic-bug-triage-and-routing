@@ -21,7 +21,45 @@ _BUG_SOURCE_TYPES = {"github", "jira", "jira_apache", "bugzilla"}
 SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
 
 
-# ── Helpers (exact copies from cases_routes.py) ───────────────────
+# ── Helpers ────────────────────────────────────────────────────────
+
+
+async def background_full_fetch(connector_list: list) -> None:
+    for connector in connector_list:
+        if connector.system_type not in _BUG_SOURCE_TYPES:
+            continue
+        try:
+            existing = await get_cached_buglist(connector.source_id, "open", "")
+            if existing and len(existing) > 50:
+                continue
+
+            all_tickets = await asyncio.wait_for(
+                connector.search_open_bugs(
+                    status="open",
+                    severity="",
+                    max_results=120,
+                ),
+                timeout=20.0,
+            )
+
+            if all_tickets:
+                data = [
+                    _normalize_list_bug(ticket, connector) for ticket in all_tickets
+                ]
+                await cache_buglist(
+                    connector.source_id, "open", "", data, ttl=REDIS_TTL_BUGLIST_SECONDS
+                )
+                print(
+                    f"[BackgroundFetch] {connector.source_id}: "
+                    f"{len(data)} bugs cached",
+                    flush=True,
+                )
+        except Exception as e:
+            print(
+                f"[BackgroundFetch] {connector.source_id} "
+                f"failed: {type(e).__name__}: {str(e)[:80]}",
+                flush=True,
+            )
 
 
 async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> dict:
