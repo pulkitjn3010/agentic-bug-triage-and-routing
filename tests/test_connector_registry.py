@@ -207,6 +207,6 @@ def test_health_check_all_returns_status_per_enabled_connector(monkeypatch):
     ]
     assert statuses[0]["status"] == "ok"
     assert statuses[0]["ok"] is True
-    assert statuses[1]["status"] == "error"
+    assert statuses[1]["status"] == "disconnected"
     assert statuses[1]["ok"] is False
     assert "health exploded" in statuses[1]["error"]
