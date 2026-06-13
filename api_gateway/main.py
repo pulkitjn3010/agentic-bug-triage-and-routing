@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .kafka_client import kafka_lifespan
 from .routes import auth_router, cases_router, triage_router, settings_router
 from .config import ENABLE_LOCAL_PIPELINE_FALLBACK
-from .routes.cases_routes import _background_fetch_connector
+from .services.bug_service import background_full_fetch
 
 log = structlog.get_logger()
 
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
                         excluded = {"confluence", "customer_portal"}
 
                         fetch_tasks = [
-                            _background_fetch_connector(c)
+                            background_full_fetch([c])
                             for c in connectors
                             if c.system_type not in excluded
                         ]

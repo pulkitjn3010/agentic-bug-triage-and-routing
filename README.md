@@ -137,7 +137,7 @@ pip install -r requirements.txt
 python -m scripts.init_db
 
 # Seed test data and knowledge base
-python scripts/seed_kb_articles.py
+python scripts/seed_confluence_articles.py
 ```
 
 ### 5. Run the Application
