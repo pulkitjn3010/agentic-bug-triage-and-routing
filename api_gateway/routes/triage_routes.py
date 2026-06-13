@@ -1,7 +1,15 @@
 import asyncio
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    Request,
+)
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from ..auth import get_current_user, User
@@ -21,7 +29,7 @@ router = APIRouter(tags=["triage"])
 
 class TriageRequest(BaseModel):
     bug_id: str
-    source_id: str = ""        # Optional — if provided, skips server-side detection
+    source_id: str = ""  # Optional — if provided, skips server-side detection
     force_refresh: bool = False  # If True, bypass LLM result cache
 
 
@@ -45,21 +53,13 @@ async def start_triage(
     )
 
 
-
-
-
 @router.get("/triage/{case_id}/result")
 async def get_triage_result(case_id: str, user: User = Depends(get_current_user)):
     return await triage_service.get_triage_result(case_id)
 
 
-
-
-
 @router.websocket("/triage/{case_id}/stream")
-async def triage_stream(
-    case_id: str, websocket: WebSocket, token: str = Query("")
-):
+async def triage_stream(case_id: str, websocket: WebSocket, token: str = Query("")):
     # MUST accept first — cannot close without accepting
     await websocket.accept()
 
@@ -76,7 +76,9 @@ async def triage_stream(
             await websocket.close(code=4001)
             return
     except JWTError:
-        await websocket.send_json({"type": "error", "message": "Invalid or expired token"})
+        await websocket.send_json(
+            {"type": "error", "message": "Invalid or expired token"}
+        )
         await websocket.close(code=4001)
         return
 

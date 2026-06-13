@@ -6,13 +6,17 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from orchestrator.db.base import Base
 from orchestrator.db.session import engine, AsyncSessionLocal, ensure_runtime_schema
 from orchestrator.db.models import (
-    Base, SourceRegistry, UserRole,
-    SystemGroupRegistry, BugGroupMapping
+    Base,
+    SourceRegistry,
+    UserRole,
+    SystemGroupRegistry,
+    BugGroupMapping,
 )
 from sqlalchemy import select
 
@@ -139,14 +143,14 @@ DEMO_SOURCES = [
         "enabled": False,
     },
     {
-        "source_id":       "hpe-confluence",
-        "display_name":    "HPE Engineering KB (Confluence)",
-        "system_type":     "confluence",
-        "base_url":        "https://cpp3-hpe.atlassian.net/wiki",
-        "auth_type":       "basic",
+        "source_id": "hpe-confluence",
+        "display_name": "HPE Engineering KB (Confluence)",
+        "system_type": "confluence",
+        "base_url": "https://cpp3-hpe.atlassian.net/wiki",
+        "auth_type": "basic",
         "auth_secret_ref": "CONFLUENCE_API_TOKEN",
-        "project_key":     "HPEKB",
-        "ticket_prefix":   "CONF",
+        "project_key": "HPEKB",
+        "ticket_prefix": "CONF",
         "enabled": False,
     },
     {
@@ -163,10 +167,30 @@ DEMO_SOURCES = [
 ]
 
 DEMO_USERS = [
-    {"email": "disha@hpe.com",     "password": "password123", "role": "engineer",  "display_name": "Disha Jain"},
-    {"email": "admin@hpe.com",     "password": "admin123",    "role": "admin",     "display_name": "Admin User"},
-    {"email": "customer@acme.com", "password": "customer123", "role": "customer",  "display_name": "Acme Customer"},
-    {"email": "exec@hpe.com",      "password": "exec123",     "role": "executive", "display_name": "HPE Executive"},
+    {
+        "email": "disha@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Disha Jain",
+    },
+    {
+        "email": "admin@hpe.com",
+        "password": "admin123",
+        "role": "admin",
+        "display_name": "Admin User",
+    },
+    {
+        "email": "customer@acme.com",
+        "password": "customer123",
+        "role": "customer",
+        "display_name": "Acme Customer",
+    },
+    {
+        "email": "exec@hpe.com",
+        "password": "exec123",
+        "role": "executive",
+        "display_name": "HPE Executive",
+    },
 ]
 ADDITIONAL_SOURCES = [
     # More Apache JIRA projects — zero new code
@@ -200,7 +224,6 @@ ADDITIONAL_SOURCES = [
         "ticket_prefix": "BEAM",
         "enabled": False,
     },
-    
     # Jenkins JIRA — zero new code, same connector
     {
         "source_id": "jenkins-jira",
@@ -212,7 +235,6 @@ ADDITIONAL_SOURCES = [
         "ticket_prefix": "JENKINS",
         "enabled": False,
     },
-    
     # Red Hat JIRA — zero new code
     {
         "source_id": "redhat-jira-wildfly",
@@ -224,7 +246,6 @@ ADDITIONAL_SOURCES = [
         "ticket_prefix": "WFLY",
         "enabled": False,
     },
-    
     # Linux Kernel Bugzilla — zero new code, same BugzillaConnector
     {
         "source_id": "linux-kernel-bugzilla",
@@ -236,7 +257,6 @@ ADDITIONAL_SOURCES = [
         "ticket_prefix": "BUG",
         "enabled": False,
     },
-    
     # More GitHub repos — zero new code, same GithubConnector
     {
         "source_id": "elastic-elasticsearch-github",
@@ -279,6 +299,8 @@ ADDITIONAL_SOURCES = [
         "enabled": False,
     },
 ]
+
+
 async def init():
     print("Creating database tables...")
     async with engine.begin() as conn:
@@ -290,7 +312,9 @@ async def init():
         print("\nSeeding data sources...")
         for src_data in DEMO_SOURCES + ADDITIONAL_SOURCES:
             existing = await db.execute(
-                select(SourceRegistry).where(SourceRegistry.source_id == src_data["source_id"])
+                select(SourceRegistry).where(
+                    SourceRegistry.source_id == src_data["source_id"]
+                )
             )
             if existing.scalar_one_or_none() is None:
                 db.add(SourceRegistry(**src_data))
@@ -301,6 +325,7 @@ async def init():
 
         print("\nSeeding demo users...")
         from passlib.context import CryptContext
+
         pwd_ctx = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
         user_count_result = await db.execute(select(UserRole))
         existing_users = list(user_count_result.scalars().all())

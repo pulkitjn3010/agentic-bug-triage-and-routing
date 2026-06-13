@@ -41,7 +41,9 @@ async def get_redis() -> aioredis.Redis:
     return _redis_client
 
 
-async def cache_ticket(source_id: str, ticket_id: str, data: dict, ttl: int = REDIS_TTL_TICKET_SECONDS) -> None:
+async def cache_ticket(
+    source_id: str, ticket_id: str, data: dict, ttl: int = REDIS_TTL_TICKET_SECONDS
+) -> None:
     try:
         r = await get_redis()
         key = f"ticket:{source_id}:{ticket_id}"
@@ -60,7 +62,13 @@ async def get_cached_ticket(source_id: str, ticket_id: str) -> dict | None:
         return None
 
 
-async def cache_buglist(source_id: str, status: str, severity: str, data: list, ttl: int = REDIS_TTL_BUGLIST_SECONDS) -> None:
+async def cache_buglist(
+    source_id: str,
+    status: str,
+    severity: str,
+    data: list,
+    ttl: int = REDIS_TTL_BUGLIST_SECONDS,
+) -> None:
     try:
         r = await get_redis()
         key = buglist_cache_key(source_id, status, severity)
@@ -85,33 +93,31 @@ async def publish_panel_update(case_id: str, panel_name: str, data: dict) -> Non
         r = await get_redis()
         await r.publish(f"ws:{case_id}", message)
 
-        log.info("Panel published",
-            case_id=case_id, panel=panel_name)
+        log.info("Panel published", case_id=case_id, panel=panel_name)
 
     except Exception as e:
         log.warning("publish_panel_update failed", error=str(e))
 
 
 async def store_panel_update(
-        case_id: str,
-        panel_name: str,
-        data: dict,
-        agent: str = "",
-        status: str = "completed") -> str:
+    case_id: str,
+    panel_name: str,
+    data: dict,
+    agent: str = "",
+    status: str = "completed",
+) -> str:
     r = await get_redis()
-    message = json.dumps({
-        "panel": panel_name,
-        "agent": agent,
-        "status": status,
-        "data": data,
-    })
-    await r.setex(
-        f"panel:{case_id}:{panel_name}", REDIS_TTL_PANEL_SECONDS, message)
+    message = json.dumps(
+        {
+            "panel": panel_name,
+            "agent": agent,
+            "status": status,
+            "data": data,
+        }
+    )
+    await r.setex(f"panel:{case_id}:{panel_name}", REDIS_TTL_PANEL_SECONDS, message)
     existing = await r.lrange(f"panels:{case_id}", 0, -1)
-    names = [
-        item.decode() if isinstance(item, bytes) else item
-        for item in existing
-    ]
+    names = [item.decode() if isinstance(item, bytes) else item for item in existing]
     if panel_name not in names:
         await r.rpush(f"panels:{case_id}", panel_name)
     await r.expire(f"panels:{case_id}", REDIS_TTL_PANEL_SECONDS)
@@ -119,35 +125,34 @@ async def store_panel_update(
 
 
 async def publish_pipeline_done(
-        case_id: str,
-        status: str,
-        duration_ms: int,
-        severity: str = "",
-        confidence: float | None = None,
-        error: str = "") -> str:
+    case_id: str,
+    status: str,
+    duration_ms: int,
+    severity: str = "",
+    confidence: float | None = None,
+    error: str = "",
+) -> str:
     r = await get_redis()
-    message = json.dumps({
-        "type": "pipeline_done",
-        "case_id": case_id,
-        "status": status,
-        "panels": [
-            "bug_context",
-            "related_issues",
-            "knowledge_base",
-            "ai_summary",
-        ],
-        "severity": severity,
-        "confidence": confidence,
-        "duration_ms": duration_ms,
-        "error": error,
-    })
-    await r.setex(
-        f"panel:{case_id}:pipeline_done", REDIS_TTL_PANEL_SECONDS, message)
+    message = json.dumps(
+        {
+            "type": "pipeline_done",
+            "case_id": case_id,
+            "status": status,
+            "panels": [
+                "bug_context",
+                "related_issues",
+                "knowledge_base",
+                "ai_summary",
+            ],
+            "severity": severity,
+            "confidence": confidence,
+            "duration_ms": duration_ms,
+            "error": error,
+        }
+    )
+    await r.setex(f"panel:{case_id}:pipeline_done", REDIS_TTL_PANEL_SECONDS, message)
     existing = await r.lrange(f"panels:{case_id}", 0, -1)
-    names = [
-        item.decode() if isinstance(item, bytes) else item
-        for item in existing
-    ]
+    names = [item.decode() if isinstance(item, bytes) else item for item in existing]
     if "pipeline_done" not in names:
         await r.rpush(f"panels:{case_id}", "pipeline_done")
     await r.expire(f"panels:{case_id}", REDIS_TTL_PANEL_SECONDS)
@@ -155,9 +160,9 @@ async def publish_pipeline_done(
     return message
 
 
-async def store_pipeline_complete(case_id: str, severity: str,
-                                   confidence: float,
-                                   duration_ms: int) -> None:
+async def store_pipeline_complete(
+    case_id: str, severity: str, confidence: float, duration_ms: int
+) -> None:
     try:
         await publish_pipeline_done(
             case_id=case_id,
@@ -178,12 +183,13 @@ async def get_stored_panels(case_id: str) -> list[dict]:
         seen = set()
         panels = []
         names = [
-            name.decode() if isinstance(name, bytes) else name
-            for name in panel_names
+            name.decode() if isinstance(name, bytes) else name for name in panel_names
         ]
-        names.sort(key=lambda name: (
-            PANEL_ORDER.index(name)
-            if name in PANEL_ORDER else len(PANEL_ORDER)))
+        names.sort(
+            key=lambda name: (
+                PANEL_ORDER.index(name) if name in PANEL_ORDER else len(PANEL_ORDER)
+            )
+        )
         for name in names:
             if name in seen:
                 continue

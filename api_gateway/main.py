@@ -19,11 +19,14 @@ async def start_kafka_consumer():
     # Only run Kafka consumer if local fallback is disabled
     # Running both causes double pipeline execution
     if ENABLE_LOCAL_PIPELINE_FALLBACK:
-        log.info("Local fallback enabled — Kafka consumer "
-                 "not started to prevent double execution")
+        log.info(
+            "Local fallback enabled — Kafka consumer "
+            "not started to prevent double execution"
+        )
         return
     try:
         from orchestrator.kafka_consumer import consume_triage_requests
+
         await consume_triage_requests()
     except Exception as e:
         log.warning("kafka_consumer_failed", error=str(e))
@@ -33,6 +36,7 @@ async def start_kafka_consumer():
 async def lifespan(app: FastAPI):
     async with kafka_lifespan(app):
         from orchestrator.db.session import ensure_runtime_schema
+
         await ensure_runtime_schema()
         consumer_task = asyncio.create_task(start_kafka_consumer())
         app.state.consumer_task = consumer_task
@@ -44,18 +48,17 @@ async def lifespan(app: FastAPI):
                 try:
                     # Acquire Redis lock to prevent duplicate runs (tight TTL of 60 seconds)
                     from orchestrator.redis_client import get_redis
+
                     redis = await get_redis()
-                    lock = await redis.set(
-                        "lock:ingest:all", "active",
-                        ex=60, nx=True)
+                    lock = await redis.set("lock:ingest:all", "active", ex=60, nx=True)
                     if not lock:
                         log.info("[Ingestion] Already running, skipping")
                         await asyncio.sleep(10)
                         continue
 
                     try:
-                        from orchestrator.connectors.registry import (
-                            ConnectorRegistry)
+                        from orchestrator.connectors.registry import ConnectorRegistry
+
                         ConnectorRegistry.invalidate_cache()
                         connectors = await ConnectorRegistry.get_all_enabled()
                         excluded = {"confluence", "customer_portal"}
@@ -69,15 +72,15 @@ async def lifespan(app: FastAPI):
                         # return_exceptions=True prevents one slow
                         # connector from killing the entire batch
                         results = await asyncio.gather(
-                            *fetch_tasks, return_exceptions=True)
+                            *fetch_tasks, return_exceptions=True
+                        )
 
-                        failed = sum(
-                            1 for exc in results
-                            if isinstance(exc, Exception))
+                        failed = sum(1 for exc in results if isinstance(exc, Exception))
                         log.info(
                             f"[Ingestion] Complete: "
                             f"{len(fetch_tasks)-failed} ok, "
-                            f"{failed} failed")
+                            f"{failed} failed"
+                        )
 
                     finally:
                         # Always release lock even if ingestion fails

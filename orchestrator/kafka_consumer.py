@@ -43,11 +43,15 @@ async def consume_triage_requests():
                     source_id = payload.get("source_id", "")
                     engineer_id = payload.get("engineer_id", "")
 
-                    log.info("Processing triage request", case_id=case_id, bug_id=bug_id)
+                    log.info(
+                        "Processing triage request", case_id=case_id, bug_id=bug_id
+                    )
                     await orchestrator.run(case_id, bug_id, source_id, engineer_id)
                     await consumer.commit()
                 except Exception as e:
-                    log.error("Error processing message", error=str(e), payload=str(msg.value))
+                    log.error(
+                        "Error processing message", error=str(e), payload=str(msg.value)
+                    )
 
         except KafkaError as e:
             log.warning("Kafka consumer error, retrying in 10s", error=str(e))

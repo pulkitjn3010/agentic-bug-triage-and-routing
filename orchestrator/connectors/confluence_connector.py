@@ -13,8 +13,8 @@ class ConfluenceConnector(BaseConnector):
 
     # Known correct base URLs for common confluence instances
     KNOWN_BASE_URLS = {
-        "cwiki.apache.org":         "https://cwiki.apache.org/confluence",
-        "cpp3-hpe.atlassian.net":   "https://cpp3-hpe.atlassian.net/wiki",
+        "cwiki.apache.org": "https://cwiki.apache.org/confluence",
+        "cpp3-hpe.atlassian.net": "https://cpp3-hpe.atlassian.net/wiki",
     }
 
     MOCK_DOMAINS = [
@@ -32,14 +32,12 @@ class ConfluenceConnector(BaseConnector):
         - If token only: Bearer Auth (PAT / server)
         - If neither: no auth header (public wiki)
         """
-        headers = {"Accept": "application/json",
-                   "Content-Type": "application/json"}
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
         email = os.getenv("CONFLUENCE_EMAIL", "").strip()
         token = (self.token or "").strip()
 
         if email and token:
-            creds = base64.b64encode(
-                f"{email}:{token}".encode()).decode()
+            creds = base64.b64encode(f"{email}:{token}".encode()).decode()
             headers["Authorization"] = f"Basic {creds}"
         elif token:
             headers["Authorization"] = f"Bearer {token}"
@@ -52,16 +50,16 @@ class ConfluenceConnector(BaseConnector):
         normalize whitespace, cap at 2000 chars.
         """
         import html
+
         # Remove HTML tags (non-greedy)
-        clean = re.sub(r'<[^>]+?>', ' ', text or '')
+        clean = re.sub(r"<[^>]+?>", " ", text or "")
         # Decode all HTML entities
         clean = html.unescape(clean)
         # Normalize whitespace
-        clean = re.sub(r'[\s\t\n\r]+', ' ', clean).strip()
+        clean = re.sub(r"[\s\t\n\r]+", " ", clean).strip()
         return clean[:2000]
 
-    def _build_url(self, webui_path: str,
-                   links_base: str = "") -> str:
+    def _build_url(self, webui_path: str, links_base: str = "") -> str:
         bad_domains = [
             "confluence.example.com",
             "localhost",
@@ -70,7 +68,9 @@ class ConfluenceConnector(BaseConnector):
             "example.com",
         ]
 
-        corp_url = os.getenv("CONFLUENCE_URL", "https://cpp3-hpe.atlassian.net/wiki").rstrip("/")
+        corp_url = os.getenv(
+            "CONFLUENCE_URL", "https://cpp3-hpe.atlassian.net/wiki"
+        ).rstrip("/")
 
         # Best case: API gave us the base URL directly
         # links_base + webui_path is always the correct URL
@@ -100,6 +100,7 @@ class ConfluenceConnector(BaseConnector):
                 return webui_path
             try:
                 from urllib.parse import urlparse
+
                 webui_path = urlparse(webui_path).path
             except Exception:
                 return base
@@ -120,19 +121,19 @@ class ConfluenceConnector(BaseConnector):
 
         return f"{base}{path}"
 
-    async def search(self, query: str,
-                     max_results: int = 5) -> list[TicketData]:
+    async def search(self, query: str, max_results: int = 5) -> list[TicketData]:
         space = (self.project_key or "HPEKB").strip()
 
         if query and query.strip():
             # Escape quotes in query for CQL safety
             safe_query = query.replace('"', '\\"')
-            cql = (f'space = "{space}" AND '
-                   f'text ~ "{safe_query}" AND type = page '
-                   f'ORDER BY lastModified DESC')
+            cql = (
+                f'space = "{space}" AND '
+                f'text ~ "{safe_query}" AND type = page '
+                f"ORDER BY lastModified DESC"
+            )
         else:
-            cql = (f'space = "{space}" AND type = page '
-                   f'ORDER BY lastModified DESC')
+            cql = f'space = "{space}" AND type = page ' f"ORDER BY lastModified DESC"
 
         url = f"{self.base_url.rstrip('/')}/rest/api/content/search"
         params = {
@@ -142,24 +143,21 @@ class ConfluenceConnector(BaseConnector):
         }
 
         try:
-            async with httpx.AsyncClient(
-                    timeout=20,
-                    follow_redirects=True) as client:
-                resp = await client.get(
-                    url,
-                    headers=self._headers(),
-                    params=params)
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                resp = await client.get(url, headers=self._headers(), params=params)
 
                 if resp.status_code == 401:
-                    log.warning("Confluence auth failed",
-                                source=self.source_id,
-                                url=url)
+                    log.warning(
+                        "Confluence auth failed", source=self.source_id, url=url
+                    )
                     return []
                 if resp.status_code != 200:
-                    log.warning("Confluence search failed",
-                                status=resp.status_code,
-                                source=self.source_id,
-                                query=query)
+                    log.warning(
+                        "Confluence search failed",
+                        status=resp.status_code,
+                        source=self.source_id,
+                        query=query,
+                    )
                     return []
 
                 results = resp.json().get("results") or []
@@ -167,71 +165,67 @@ class ConfluenceConnector(BaseConnector):
 
                 for r in results:
                     try:
-                        body_raw = (r.get("body", {})
-                                      .get("storage", {})
-                                      .get("value", ""))
+                        body_raw = r.get("body", {}).get("storage", {}).get("value", "")
                         description = self._strip_html(body_raw)
                         version = r.get("version") or {}
                         when = version.get("when", "")
-                        links    = r.get("_links") or {}
-                        webui    = links.get("webui", "")
+                        links = r.get("_links") or {}
+                        webui = links.get("webui", "")
                         api_base = links.get("base", "")
                         full_url = self._build_url(webui, api_base)
 
-                        tickets.append(TicketData(
-                            ticket_id=str(r.get("id", "")),
-                            title=r.get("title", ""),
-                            description=description,
-                            severity="Unknown",
-                            status="Published",
-                            component=space,
-                            assignee="",
-                            reporter="",
-                            created_at="",
-                            updated_at=when,
-                            source_id=self.source_id,
-                            system_type=self.system_type,
-                            url=full_url,
-                        ))
+                        tickets.append(
+                            TicketData(
+                                ticket_id=str(r.get("id", "")),
+                                title=r.get("title", ""),
+                                description=description,
+                                severity="Unknown",
+                                status="Published",
+                                component=space,
+                                assignee="",
+                                reporter="",
+                                created_at="",
+                                updated_at=when,
+                                source_id=self.source_id,
+                                system_type=self.system_type,
+                                url=full_url,
+                            )
+                        )
                     except Exception as e:
-                        log.warning("Confluence result parse error",
-                                    error=str(e))
+                        log.warning("Confluence result parse error", error=str(e))
                         continue
 
-                log.info("Confluence search complete",
-                         source=self.source_id,
-                         space=space,
-                         query=query,
-                         count=len(tickets))
+                log.info(
+                    "Confluence search complete",
+                    source=self.source_id,
+                    space=space,
+                    query=query,
+                    count=len(tickets),
+                )
                 return tickets
 
         except httpx.TimeoutException:
-            log.warning("Confluence search timeout",
-                        source=self.source_id, query=query)
+            log.warning("Confluence search timeout", source=self.source_id, query=query)
             return []
         except Exception as e:
-            log.warning("Confluence search error",
-                        source=self.source_id, error=str(e))
+            log.warning("Confluence search error", source=self.source_id, error=str(e))
             return []
 
     async def get(self, article_id: str) -> TicketData | None:
-        url = (f"{self.base_url.rstrip('/')}"
-               f"/rest/api/content/{article_id}"
-               f"?expand=body.storage,version")
+        url = (
+            f"{self.base_url.rstrip('/')}"
+            f"/rest/api/content/{article_id}"
+            f"?expand=body.storage,version"
+        )
         try:
-            async with httpx.AsyncClient(
-                    timeout=15,
-                    follow_redirects=True) as client:
-                resp = await client.get(
-                    url, headers=self._headers())
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(url, headers=self._headers())
                 if resp.status_code != 200:
                     return None
                 r = resp.json()
-                body_raw = (r.get("body", {})
-                              .get("storage", {})
-                              .get("value", ""))
-                links    = r.get("_links") or {}
-                webui    = links.get("webui", "")
+                body_raw = r.get("body", {}).get("storage", {}).get("value", "")
+                links = r.get("_links") or {}
+                webui = links.get("webui", "")
                 api_base = links.get("base", "")
                 return TicketData(
                     ticket_id=str(r.get("id", "")),
@@ -249,15 +243,13 @@ class ConfluenceConnector(BaseConnector):
                     url=self._build_url(webui, api_base),
                 )
         except Exception as e:
-            log.warning("Confluence get error",
-                        article_id=article_id, error=str(e))
+            log.warning("Confluence get error", article_id=article_id, error=str(e))
             return None
 
     async def get_linked_items(self, ticket_id: str) -> list:
         return []
 
-    async def get_changelog(self, ticket_id: str,
-                             since: str = "") -> list[ChangeEvent]:
+    async def get_changelog(self, ticket_id: str, since: str = "") -> list[ChangeEvent]:
         return []
 
     async def get_lightweight(self, ticket_id: str) -> dict:

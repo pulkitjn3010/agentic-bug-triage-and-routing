@@ -44,7 +44,9 @@ async def authenticate_user(email: str, password: str) -> Optional[User]:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=JWT_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=JWT_EXPIRE_MINUTES)
+    )
     to_encode["exp"] = expire
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -70,6 +72,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
 def require_role(*roles: str):
     async def _check(user: User = Depends(get_current_user)) -> User:
         if user.role not in roles:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+            )
         return user
+
     return _check

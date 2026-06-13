@@ -17,8 +17,7 @@ log = structlog.get_logger()
 
 
 class TokenProvider(Protocol):
-    def get_token(self, secret_ref: str | None) -> str:
-        ...
+    def get_token(self, secret_ref: str | None) -> str: ...
 
 
 class EnvironmentTokenProvider:
@@ -31,13 +30,13 @@ class EnvironmentTokenProvider:
 
 
 SYSTEM_TYPE_TO_CLASS = {
-    "github":          GithubConnector,
-    "jira":            JiraConnector,
-    "jira_apache":     JiraConnector,
-    "jira_cloud":      JiraConnector,
-    "bugzilla":        BugzillaConnector,
-    "confluence":      ConfluenceConnector,
-    "support_kb":      SupportKBConnector,
+    "github": GithubConnector,
+    "jira": JiraConnector,
+    "jira_apache": JiraConnector,
+    "jira_cloud": JiraConnector,
+    "bugzilla": BugzillaConnector,
+    "confluence": ConfluenceConnector,
+    "support_kb": SupportKBConnector,
     "customer_portal": CustomerPortalConnector,
 }
 
@@ -71,8 +70,7 @@ async def load_connectors_from_db() -> list[BaseConnector]:
         async with AsyncSessionLocal() as db:
             sources = await get_enabled_sources(db)
     except Exception as e:
-        log.warning("ConnectorRegistry: failed to read source_registry",
-                    error=str(e))
+        log.warning("ConnectorRegistry: failed to read source_registry", error=str(e))
         return []
 
     connectors: list[BaseConnector] = []
@@ -80,18 +78,22 @@ async def load_connectors_from_db() -> list[BaseConnector]:
         system_type = (row.system_type or "").strip().lower()
         connector_class = get_connector_class(system_type)
         if not connector_class:
-            log.warning("ConnectorRegistry: unknown system_type",
-                        source_id=row.source_id,
-                        system_type=row.system_type)
+            log.warning(
+                "ConnectorRegistry: unknown system_type",
+                source_id=row.source_id,
+                system_type=row.system_type,
+            )
             continue
 
         try:
             token = _token_provider.get_token(row.auth_secret_ref)
         except Exception as e:
-            log.warning("ConnectorRegistry: token load failed",
-                        source_id=row.source_id,
-                        secret_ref=row.auth_secret_ref,
-                        error=str(e))
+            log.warning(
+                "ConnectorRegistry: token load failed",
+                source_id=row.source_id,
+                secret_ref=row.auth_secret_ref,
+                error=str(e),
+            )
             token = ""
 
         try:
@@ -109,10 +111,12 @@ async def load_connectors_from_db() -> list[BaseConnector]:
             connector.port = row.port
             connectors.append(connector)
         except Exception as e:
-            log.warning("ConnectorRegistry: connector init failed",
-                        source_id=row.source_id,
-                        system_type=system_type,
-                        error=str(e))
+            log.warning(
+                "ConnectorRegistry: connector init failed",
+                source_id=row.source_id,
+                system_type=system_type,
+                error=str(e),
+            )
 
     _connector_cache = connectors
     _connector_cache_ts = time.time()
@@ -122,9 +126,10 @@ async def load_connectors_from_db() -> list[BaseConnector]:
 class ConnectorRegistry:
     @classmethod
     async def get_all_enabled(cls) -> list[BaseConnector]:
-        if (_connector_cache
-                and time.time() - _connector_cache_ts
-                < _CONNECTOR_CACHE_TTL_SECONDS):
+        if (
+            _connector_cache
+            and time.time() - _connector_cache_ts < _CONNECTOR_CACHE_TTL_SECONDS
+        ):
             return _connector_cache
         return await load_connectors_from_db()
 
@@ -166,14 +171,17 @@ class ConnectorRegistry:
             prefix = (connector.ticket_prefix or "").upper().strip()
             if not prefix:
                 continue
-            if (ticket_upper == prefix
-                    or ticket_upper.startswith(f"{prefix}-")
-                    or ticket_upper.startswith(prefix)):
+            if (
+                ticket_upper == prefix
+                or ticket_upper.startswith(f"{prefix}-")
+                or ticket_upper.startswith(prefix)
+            ):
                 return connector
 
         if ticket_id.isdigit():
             github_connectors = [
-                connector for connector in connectors
+                connector
+                for connector in connectors
                 if connector.system_type == "github"
             ]
             if len(github_connectors) == 1:
@@ -185,9 +193,11 @@ class ConnectorRegistry:
     async def get_by_type(cls, system_type: str) -> BaseConnector | None:
         connectors = await cls.get_all_by_type(system_type)
         if len(connectors) > 1:
-            log.warning("ConnectorRegistry: get_by_type returned first of many",
-                        system_type=system_type,
-                        count=len(connectors))
+            log.warning(
+                "ConnectorRegistry: get_by_type returned first of many",
+                system_type=system_type,
+                count=len(connectors),
+            )
         return connectors[0] if connectors else None
 
     @classmethod
@@ -195,23 +205,33 @@ class ConnectorRegistry:
         normalized = (system_type or "").strip().lower()
         connectors = await cls.get_all_enabled()
         return [
-            connector for connector in connectors
-            if connector.system_type == normalized
+            connector for connector in connectors if connector.system_type == normalized
         ]
 
     @classmethod
-    async def health_check_all(cls, timeout: float = 10.0, use_cache: bool = False) -> list[dict]:
+    async def health_check_all(
+        cls, timeout: float = 10.0, use_cache: bool = False
+    ) -> list[dict]:
         import time
+
         global _health_cache, _health_lock
         current_time = time.time()
 
-        if use_cache and _health_cache["data"] is not None and (current_time - _health_cache["timestamp"]) < 120:
+        if (
+            use_cache
+            and _health_cache["data"] is not None
+            and (current_time - _health_cache["timestamp"]) < 120
+        ):
             return _health_cache["data"]
 
         async with _health_lock:
             # Check cache again after acquiring lock in case another request populated it
             current_time = time.time()
-            if use_cache and _health_cache["data"] is not None and (current_time - _health_cache["timestamp"]) < 120:
+            if (
+                use_cache
+                and _health_cache["data"] is not None
+                and (current_time - _health_cache["timestamp"]) < 120
+            ):
                 return _health_cache["data"]
 
             connectors = await cls.get_all_enabled()
@@ -234,7 +254,8 @@ class ConnectorRegistry:
                         "source_id": connector.source_id,
                         "system_type": connector.system_type,
                         "display_name": getattr(
-                            connector, "display_name", connector.source_id),
+                            connector, "display_name", connector.source_id
+                        ),
                         "status": "disconnected",
                         "ok": False,
                         "latency_ms": int(timeout * 1000),
@@ -245,7 +266,8 @@ class ConnectorRegistry:
                         "source_id": connector.source_id,
                         "system_type": connector.system_type,
                         "display_name": getattr(
-                            connector, "display_name", connector.source_id),
+                            connector, "display_name", connector.source_id
+                        ),
                         "status": "disconnected",
                         "ok": False,
                         "latency_ms": 0,
@@ -262,14 +284,20 @@ class ConnectorRegistry:
     @classmethod
     async def get_healthy_count(cls) -> int:
         import time
+
         global _health_cache
         current_time = time.time()
-        
-        if _health_cache["data"] is not None and (current_time - _health_cache["timestamp"]) < 120:
+
+        if (
+            _health_cache["data"] is not None
+            and (current_time - _health_cache["timestamp"]) < 120
+        ):
             return sum(1 for r in _health_cache["data"] if r.get("ok") is True)
-            
+
         try:
-            results = await asyncio.wait_for(cls.health_check_all(timeout=8.0, use_cache=True), timeout=20.0)
+            results = await asyncio.wait_for(
+                cls.health_check_all(timeout=8.0, use_cache=True), timeout=20.0
+            )
             return sum(1 for r in results if r.get("ok") is True)
         except Exception as e:
             # Smart fallback: If the network ping times out, count systems that are fully configured with tokens
@@ -294,8 +322,7 @@ def get_connector_for_ticket(ticket_id: str) -> BaseConnector | None:
         return None
 
     connectors = [
-        connector for connector in _connector_cache
-        if connector.is_bug_source
+        connector for connector in _connector_cache if connector.is_bug_source
     ]
     connectors.sort(
         key=lambda connector: len(connector.ticket_prefix or ""),
@@ -306,8 +333,10 @@ def get_connector_for_ticket(ticket_id: str) -> BaseConnector | None:
         prefix = (connector.ticket_prefix or "").upper().strip()
         if not prefix:
             continue
-        if (ticket_upper == prefix
-                or ticket_upper.startswith(f"{prefix}-")
-                or ticket_upper.startswith(prefix)):
+        if (
+            ticket_upper == prefix
+            or ticket_upper.startswith(f"{prefix}-")
+            or ticket_upper.startswith(prefix)
+        ):
             return connector
     return None

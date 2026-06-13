@@ -42,10 +42,12 @@ def test_customer_portal_returns_no_fake_cases_when_api_unavailable(monkeypatch)
     monkeypatch.setattr(portal_module.httpx, "AsyncClient", FailingClient)
 
     connector = make_connector()
-    results = __import__("asyncio").run(connector.search(
-        "StorageController NPE",
-        primary_ticket={"title": "StorageController NPE"},
-    ))
+    results = __import__("asyncio").run(
+        connector.search(
+            "StorageController NPE",
+            primary_ticket={"title": "StorageController NPE"},
+        )
+    )
 
     assert results == []
     assert "CASE-2891" not in [item.ticket_id for item in results]
@@ -65,44 +67,53 @@ def test_customer_signal_results_normalize_into_expected_shape(monkeypatch):
 
         async def get(self, url, params=None):
             if "algolia" in url:
-                return FakeResponse({
-                    "hits": [{
-                        "objectID": "42",
-                        "title": "StorageController NPE discussion",
-                        "author": "hn-dev",
-                        "points": 130,
-                        "num_comments": 12,
-                        "url": "https://news.ycombinator.com/item?id=42",
-                    }]
-                })
-            return FakeResponse({
-                "items": [{
-                    "question_id": 99,
-                    "title": "StorageController allocate throws NPE",
-                    "owner": {"display_name": "so-dev"},
-                    "score": 4,
-                    "view_count": 500,
-                    "is_answered": True,
-                    "body": "<p>Provisioning fails for users.</p>",
-                    "link": "https://stackoverflow.com/questions/99",
-                }]
-            })
+                return FakeResponse(
+                    {
+                        "hits": [
+                            {
+                                "objectID": "42",
+                                "title": "StorageController NPE discussion",
+                                "author": "hn-dev",
+                                "points": 130,
+                                "num_comments": 12,
+                                "url": "https://news.ycombinator.com/item?id=42",
+                            }
+                        ]
+                    }
+                )
+            return FakeResponse(
+                {
+                    "items": [
+                        {
+                            "question_id": 99,
+                            "title": "StorageController allocate throws NPE",
+                            "owner": {"display_name": "so-dev"},
+                            "score": 4,
+                            "view_count": 500,
+                            "is_answered": True,
+                            "body": "<p>Provisioning fails for users.</p>",
+                            "link": "https://stackoverflow.com/questions/99",
+                        }
+                    ]
+                }
+            )
 
     monkeypatch.setattr(portal_module.httpx, "AsyncClient", FakeClient)
 
     connector = make_connector()
-    results = __import__("asyncio").run(connector.search(
-        "StorageController NPE",
-        max_results=5,
-        primary_ticket={
-            "title": "StorageController NPE during provisioning",
-            "component": "StorageController",
-        },
-    ))
+    results = __import__("asyncio").run(
+        connector.search(
+            "StorageController NPE",
+            max_results=5,
+            primary_ticket={
+                "title": "StorageController NPE during provisioning",
+                "component": "StorageController",
+            },
+        )
+    )
     signals = [item.signal_metadata for item in results]
 
-    assert {signal["source"] for signal in signals} == {
-        "Hacker News", "Stack Overflow"}
+    assert {signal["source"] for signal in signals} == {"Hacker News", "Stack Overflow"}
     hn = next(signal for signal in signals if signal["source"] == "Hacker News")
     so = next(signal for signal in signals if signal["source"] == "Stack Overflow")
     assert hn["severity"] == "P1"

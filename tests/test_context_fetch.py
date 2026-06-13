@@ -141,7 +141,7 @@ class FakeRedis:
         values = self.lists.get(key, [])
         if end == -1:
             return values[start:]
-        return values[start:end + 1]
+        return values[start : end + 1]
 
     async def expire(self, key, ttl):
         self.messages.append(("expire", key, ttl))
@@ -156,11 +156,15 @@ def test_full_primary_ticket_is_fetched_and_normalized(monkeypatch):
     FakeRegistry.portals = [FakePortal()]
     monkeypatch.setattr(context_fetch_module, "ConnectorRegistry", FakeRegistry)
 
-    context = run(ContextFetchAgent().run({
-        "bug_id": "STO-1089",
-        "source_id": "jira-storage",
-        "errors": {},
-    }))
+    context = run(
+        ContextFetchAgent().run(
+            {
+                "bug_id": "STO-1089",
+                "source_id": "jira-storage",
+                "errors": {},
+            }
+        )
+    )
 
     primary = context["primary_ticket"]
     bug_context = context["bug_context"]
@@ -181,11 +185,15 @@ def test_missing_source_id_resolves_using_ticket_prefix(monkeypatch):
     FakeRegistry.portals = []
     monkeypatch.setattr(context_fetch_module, "ConnectorRegistry", FakeRegistry)
 
-    context = run(ContextFetchAgent().run({
-        "bug_id": "STO-1089",
-        "source_id": "",
-        "errors": {},
-    }))
+    context = run(
+        ContextFetchAgent().run(
+            {
+                "bug_id": "STO-1089",
+                "source_id": "",
+                "errors": {},
+            }
+        )
+    )
 
     assert connector.requested_ticket_id == "STO-1089"
     assert context["source_id"] == "jira-storage"
@@ -206,11 +214,15 @@ def test_panel_1_payload_contains_required_fields(monkeypatch):
 
     monkeypatch.setattr(redis_client, "get_redis", get_fake_redis)
 
-    context = run(ContextFetchAgent().run({
-        "bug_id": "STO-1089",
-        "source_id": "jira-storage",
-        "errors": {},
-    }))
+    context = run(
+        ContextFetchAgent().run(
+            {
+                "bug_id": "STO-1089",
+                "source_id": "jira-storage",
+                "errors": {},
+            }
+        )
+    )
     payload = {
         "primary_ticket": context.get("primary_ticket"),
         "bug_context": context.get("bug_context"),
@@ -220,13 +232,15 @@ def test_panel_1_payload_contains_required_fields(monkeypatch):
         "errors": context.get("errors") or {},
     }
 
-    run(TaskOrchestrator()._publish_panel(
-        "case-1",
-        "bug_context",
-        payload,
-        agent="ContextFetchAgent",
-        status="completed",
-    ))
+    run(
+        TaskOrchestrator()._publish_panel(
+            "case-1",
+            "bug_context",
+            payload,
+            agent="ContextFetchAgent",
+            status="completed",
+        )
+    )
 
     published = [
         json.loads(message)
@@ -246,11 +260,15 @@ def test_fetch_failure_returns_structured_error_without_crashing(monkeypatch):
     FakeRegistry.portals = []
     monkeypatch.setattr(context_fetch_module, "ConnectorRegistry", FakeRegistry)
 
-    context = run(ContextFetchAgent().run({
-        "bug_id": "STO-1089",
-        "source_id": "jira-storage",
-        "errors": {},
-    }))
+    context = run(
+        ContextFetchAgent().run(
+            {
+                "bug_id": "STO-1089",
+                "source_id": "jira-storage",
+                "errors": {},
+            }
+        )
+    )
 
     assert context["primary_ticket"] is None
     assert context["bug_context"]["ticket_id"] == "STO-1089"
@@ -298,11 +316,15 @@ def test_context_fetch_attaches_customer_signals(monkeypatch):
     FakeRegistry.portals = [SignalPortal()]
     monkeypatch.setattr(context_fetch_module, "ConnectorRegistry", FakeRegistry)
 
-    context = run(ContextFetchAgent().run({
-        "bug_id": "STO-1089",
-        "source_id": "jira-storage",
-        "errors": {},
-    }))
+    context = run(
+        ContextFetchAgent().run(
+            {
+                "bug_id": "STO-1089",
+                "source_id": "jira-storage",
+                "errors": {},
+            }
+        )
+    )
 
     signal = context["bug_context"]["customer_signals"][0]
     assert signal == context["customer_signals"][0]

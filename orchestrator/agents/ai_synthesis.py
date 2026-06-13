@@ -7,8 +7,10 @@ from .base import BaseAgent
 from ..models.synthesis import SynthesisOutput
 from ..db.session import AsyncSessionLocal
 from ..db.repositories.group_registry import (
-    get_next_group_id, create_group,
-    get_group_for_any_ticket, add_tickets_to_group
+    get_next_group_id,
+    create_group,
+    get_group_for_any_ticket,
+    add_tickets_to_group,
 )
 
 log = structlog.get_logger()
@@ -33,7 +35,10 @@ class AISynthesisAgent(BaseAgent):
         related = context.get("related_tickets") or []
         kb_articles = context.get("kb_articles") or []
         customer_cases = context.get("customer_cases") or []
-        print(f"[AISynthesis] Starting with {len(related)} related tickets and {len(kb_articles)} KB articles", flush=True)
+        print(
+            f"[AISynthesis] Starting with {len(related)} related tickets and {len(kb_articles)} KB articles",
+            flush=True,
+        )
 
         groq_api_key = os.getenv("GROQ_API_KEY", "")
         groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
@@ -43,13 +48,14 @@ class AISynthesisAgent(BaseAgent):
             return context
 
         # BUG2-B: cache check — same bug always returns same triage within 1 hour
-        bug_id_ctx    = context.get("bug_id", "")
+        bug_id_ctx = context.get("bug_id", "")
         source_id_ctx = context.get("source_id", "")
         force_refresh = context.get("force_refresh", False)
-        _cache_key    = f"triage_result:{source_id_ctx}:{bug_id_ctx}"
+        _cache_key = f"triage_result:{source_id_ctx}:{bug_id_ctx}"
         if not force_refresh and bug_id_ctx:
             try:
                 from ..redis_client import get_redis
+
                 _r = await get_redis()
                 _cached = await _r.get(_cache_key)
                 if _cached:
@@ -148,30 +154,34 @@ class AISynthesisAgent(BaseAgent):
             try:
                 from ..redis_client import get_redis
                 from api_gateway.config import REDIS_TTL_CASE_SECONDS
+
                 _r = await get_redis()
-                await _r.setex(_cache_key, 120,
-                               json.dumps(context["synthesis"]))
+                await _r.setex(_cache_key, 120, json.dumps(context["synthesis"]))
             except Exception:
                 pass
 
         # BT-xxx System ID Resolution Block
-        group_id = await self._resolve_group_id(
-            context, synthesis)
+        group_id = await self._resolve_group_id(context, synthesis)
         if group_id:
             context["group_id"] = group_id
             context["synthesis"]["group_id"] = group_id
-            log.info("BT group resolved",
-                     case_id=context.get("case_id"),
-                     group_id=group_id)
+            log.info(
+                "BT group resolved", case_id=context.get("case_id"), group_id=group_id
+            )
 
         return context
 
-    def _build_prompt(self, primary: dict, related: list,
-                      kb_articles: list, customer_cases: list = None) -> str:
+    def _build_prompt(
+        self,
+        primary: dict,
+        related: list,
+        kb_articles: list,
+        customer_cases: list = None,
+    ) -> str:
         related_str = ""
         for r in related[:5]:
-            src = r.get('source') or r.get('source_id') or r.get('system_type') or ''
-            tid = r.get('id') or r.get('ticket_id') or ''
+            src = r.get("source") or r.get("source_id") or r.get("system_type") or ""
+            tid = r.get("id") or r.get("ticket_id") or ""
             related_str += f"- [{src}] {tid} — {r.get('title','')} (score: {r.get('similarity_score', 0):.2f}, reason: {r.get('similarity_reason','')})\n"
 
         kb_str = ""
@@ -217,22 +227,20 @@ Guidelines:
 - summary: A clear technical summary of the bug, its impact, and recommended next steps for the engineer.
 - recommended_actions: 3-5 specific actionable steps"""
 
-    async def _resolve_group_id(self, context: dict,
-                                 synthesis) -> str | None:
+    async def _resolve_group_id(self, context: dict, synthesis) -> str | None:
         primary = context.get("primary_ticket") or {}
         related = context.get("related_tickets") or []
 
         primary_ticket_ref = {
             "ticket_id": primary.get("ticket_id", ""),
-            "source_id": primary.get("source_id",
-                                      context.get("source_id", "")),
+            "source_id": primary.get("source_id", context.get("source_id", "")),
             "system_type": primary.get("system_type", ""),
         }
 
         all_tickets = [primary_ticket_ref] + [
             {
-                "ticket_id":  t.get("ticket_id") or t.get("id") or "",
-                "source_id":  t.get("source_id") or t.get("source") or "",
+                "ticket_id": t.get("ticket_id") or t.get("id") or "",
+                "source_id": t.get("source_id") or t.get("source") or "",
                 "system_type": t.get("system_type") or t.get("source") or "",
             }
             for t in related
@@ -242,29 +250,22 @@ Guidelines:
         try:
             async with AsyncSessionLocal() as db:
                 # Scenario A: join existing group
-                existing = await get_group_for_any_ticket(
-                    db, all_tickets)
+                existing = await get_group_for_any_ticket(db, all_tickets)
                 if existing:
-                    await add_tickets_to_group(
-                        db, existing, all_tickets)
+                    await add_tickets_to_group(db, existing, all_tickets)
                     return existing
 
                 # Scenario B: mint new group
                 new_id = await get_next_group_id(db)
-                priority = getattr(synthesis,
-                                    "unified_severity", "P2")
+                priority = getattr(synthesis, "unified_severity", "P2")
                 title = primary.get("title", "Bug Group")[:300]
-                src = primary.get(
-                    "source_id", context.get("source_id", ""))
-                await create_group(db, new_id, title,
-                                   priority, src)
-                await add_tickets_to_group(
-                    db, new_id, all_tickets)
+                src = primary.get("source_id", context.get("source_id", ""))
+                await create_group(db, new_id, title, priority, src)
+                await add_tickets_to_group(db, new_id, all_tickets)
                 return new_id
 
         except Exception as e:
-            log.warning("BT group resolution failed",
-                        error=str(e))
+            log.warning("BT group resolution failed", error=str(e))
             return None
 
     def _keyword_fallback(self, primary: dict) -> SynthesisOutput:

@@ -21,9 +21,7 @@ async def start_triage(
     force_refresh: bool,
     kafka_producer,  # extracted from request.app.state by the route — never imported here
 ) -> dict:
-    log.info("Triage request received",
-             ticket_id=bug_id,
-             source_id=source_id)
+    log.info("Triage request received", ticket_id=bug_id, source_id=source_id)
 
     async with AsyncSessionLocal() as db:
         sources = await get_enabled_sources(db)
@@ -54,43 +52,47 @@ async def start_triage(
     if not source_id:
         raise HTTPException(status_code=400, detail="No source system configured")
 
-    log.info("Starting triage",
-             ticket_id=bug_id,
-             source_id=source_id,
-             user=user_id)
+    log.info("Starting triage", ticket_id=bug_id, source_id=source_id, user=user_id)
 
     case_id = str(uuid4())
 
     # Always run pipeline locally when fallback is enabled
-    enable_fallback = os.getenv(
-        "ENABLE_LOCAL_PIPELINE_FALLBACK", "true"
-    ).lower() == "true"
+    enable_fallback = (
+        os.getenv("ENABLE_LOCAL_PIPELINE_FALLBACK", "true").lower() == "true"
+    )
 
     if enable_fallback:
         from orchestrator.orchestrator import TaskOrchestrator
+
         orch = TaskOrchestrator()
         asyncio.create_task(
-            orch.run(case_id, bug_id, source_id,
-                     user_id,
-                     force_refresh=force_refresh))
+            orch.run(case_id, bug_id, source_id, user_id, force_refresh=force_refresh)
+        )
     else:
         published = False
         if kafka_producer:
             try:
                 published = await publish_triage_request(
-                    kafka_producer, case_id, bug_id,
-                    source_id, user_id)
+                    kafka_producer, case_id, bug_id, source_id, user_id
+                )
             except Exception:
                 published = False
         if not published:
             from orchestrator.orchestrator import TaskOrchestrator
+
             orch = TaskOrchestrator()
             asyncio.create_task(
-                orch.run(case_id, bug_id, source_id,
-                         user_id,
-                         force_refresh=force_refresh))
+                orch.run(
+                    case_id, bug_id, source_id, user_id, force_refresh=force_refresh
+                )
+            )
 
-    return {"case_id": case_id, "bug_id": bug_id, "source_id": source_id, "status": "accepted"}
+    return {
+        "case_id": case_id,
+        "bug_id": bug_id,
+        "source_id": source_id,
+        "status": "accepted",
+    }
 
 
 async def get_triage_result(case_id: str) -> dict:
@@ -128,4 +130,6 @@ async def get_triage_result(case_id: str) -> dict:
     except Exception:
         pass
 
-    raise HTTPException(status_code=404, detail="Result not found or expired. Please retriage.")
+    raise HTTPException(
+        status_code=404, detail="Result not found or expired. Please retriage."
+    )

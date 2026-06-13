@@ -26,6 +26,8 @@ JIRA_PRIORITY_MAP = {
     "trivial": "P3",
     "minor": "P3",
 }
+
+
 class JiraConnector(BaseConnector):
     def _extract_text_from_adf(self, content) -> str:
         """Recursively extract plain text from Atlassian Document Format (ADF)."""
@@ -34,7 +36,10 @@ class JiraConnector(BaseConnector):
         if isinstance(content, dict):
             if content.get("type") == "text":
                 return content.get("text", "")
-            parts = [self._extract_text_from_adf(child) for child in content.get("content", [])]
+            parts = [
+                self._extract_text_from_adf(child)
+                for child in content.get("content", [])
+            ]
             return " ".join(filter(None, parts))
         if isinstance(content, list):
             return " ".join(self._extract_text_from_adf(item) for item in content)
@@ -53,15 +58,17 @@ class JiraConnector(BaseConnector):
         severity = JIRA_PRIORITY_MAP.get(priority_name, "Unknown")
 
         raw_status = ((fields.get("status") or {}).get("name") or "").lower()
-        status = JIRA_STATUS_MAP.get(raw_status, raw_status.title() if raw_status else "Unknown")
+        status = JIRA_STATUS_MAP.get(
+            raw_status, raw_status.title() if raw_status else "Unknown"
+        )
 
         components = fields.get("components") or []
         component = components[0].get("name", "") if components else ""
 
-        assignee = ((fields.get("assignee") or {}).get("displayName") or "")
-        reporter = ((fields.get("reporter") or {}).get("displayName") or "")
+        assignee = (fields.get("assignee") or {}).get("displayName") or ""
+        reporter = (fields.get("reporter") or {}).get("displayName") or ""
 
-        raw_comments = ((fields.get("comment") or {}).get("comments") or [])
+        raw_comments = (fields.get("comment") or {}).get("comments") or []
         comments = [
             {
                 "author": (c.get("author") or {}).get("displayName", ""),
@@ -78,11 +85,13 @@ class JiraConnector(BaseConnector):
             outward = lnk.get("outwardIssue") or {}
             target = inward or outward
             if target.get("key"):
-                linked_items.append({
-                    "id": target["key"],
-                    "type": (lnk.get("type") or {}).get("name", "relates"),
-                    "title": (target.get("fields") or {}).get("summary", ""),
-                })
+                linked_items.append(
+                    {
+                        "id": target["key"],
+                        "type": (lnk.get("type") or {}).get("name", "relates"),
+                        "title": (target.get("fields") or {}).get("summary", ""),
+                    }
+                )
 
         raw_description = fields.get("description") or ""
         if isinstance(raw_description, dict):
@@ -130,31 +139,48 @@ class JiraConnector(BaseConnector):
         except Exception:
             return None
 
-    async def search(self, query: str, max_results: int = 100, start_at: int = 0) -> list[TicketData]:
-        fields = ["summary", "description", "status", "priority", "components",
-                  "assignee", "reporter", "created", "updated", "comment", "issuelinks"]
+    async def search(
+        self, query: str, max_results: int = 100, start_at: int = 0
+    ) -> list[TicketData]:
+        fields = [
+            "summary",
+            "description",
+            "status",
+            "priority",
+            "components",
+            "assignee",
+            "reporter",
+            "created",
+            "updated",
+            "comment",
+            "issuelinks",
+        ]
         if query:
             jql = f'project = {self.project_key} AND resolution = Unresolved AND text ~ "{query}" ORDER BY updated DESC'
         else:
-            jql = f'project = {self.project_key} AND resolution = Unresolved ORDER BY updated DESC'
+            jql = f"project = {self.project_key} AND resolution = Unresolved ORDER BY updated DESC"
 
-        MAX_CHUNKS = 20 # 10k bugs ceiling
+        MAX_CHUNKS = 20  # 10k bugs ceiling
         CHUNK_SIZE = 500
-        
+
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 # 1. Fetch total count first
                 count_payload = {"jql": jql, "maxResults": 0}
-                resp = await client.post(f"{self.base_url}/rest/api/2/search", json=count_payload, headers=self._headers())
+                resp = await client.post(
+                    f"{self.base_url}/rest/api/2/search",
+                    json=count_payload,
+                    headers=self._headers(),
+                )
                 resp.raise_for_status()
                 total = resp.json().get("total", 0)
-                
+
                 if total == 0:
                     return []
-                
+
                 # Cap chunks
                 num_chunks = min(MAX_CHUNKS, (total + CHUNK_SIZE - 1) // CHUNK_SIZE)
-                
+
                 async def fetch_chunk(start_idx: int):
                     payload = {
                         "jql": jql,
@@ -162,18 +188,29 @@ class JiraConnector(BaseConnector):
                         "startAt": start_idx,
                         "fields": fields,
                     }
-                    chunk_resp = await client.post(f"{self.base_url}/rest/api/2/search", json=payload, headers=self._headers())
+                    chunk_resp = await client.post(
+                        f"{self.base_url}/rest/api/2/search",
+                        json=payload,
+                        headers=self._headers(),
+                    )
                     chunk_resp.raise_for_status()
                     return chunk_resp.json().get("issues", [])
-                
-                tasks = [fetch_chunk(start_idx * CHUNK_SIZE) for start_idx in range(num_chunks)]
+
+                tasks = [
+                    fetch_chunk(start_idx * CHUNK_SIZE)
+                    for start_idx in range(num_chunks)
+                ]
                 results = await asyncio.gather(*tasks)
-                
+
                 all_issues = []
                 for chunk in results:
                     all_issues.extend(chunk)
-                
-                return [self._normalise(issue) for issue in all_issues if isinstance(issue, dict)]
+
+                return [
+                    self._normalise(issue)
+                    for issue in all_issues
+                    if isinstance(issue, dict)
+                ]
         except Exception as e:
             print(f"[JIRA] Search error: {e}")
             return []
@@ -187,11 +224,17 @@ class JiraConnector(BaseConnector):
                 if resp.status_code != 200:
                     return {}
                 fields = resp.json().get("fields", {})
-                priority_name = ((fields.get("priority") or {}).get("name") or "").lower()
+                priority_name = (
+                    (fields.get("priority") or {}).get("name") or ""
+                ).lower()
                 severity = JIRA_PRIORITY_MAP.get(priority_name, "Unknown")
                 raw_status = ((fields.get("status") or {}).get("name") or "").lower()
                 status = JIRA_STATUS_MAP.get(raw_status, raw_status.title())
-                return {"updated_at": fields.get("updated", ""), "severity": severity, "status": status}
+                return {
+                    "updated_at": fields.get("updated", ""),
+                    "severity": severity,
+                    "status": status,
+                }
         except Exception:
             return {}
 
@@ -206,20 +249,22 @@ class JiraConnector(BaseConnector):
         fields = raw_payload.get("fields") or {}
 
         # 1. Direct issue-to-issue links (JIRA issuelinks block)
-        for link in (fields.get("issuelinks") or []):
+        for link in fields.get("issuelinks") or []:
             sub = link.get("outwardIssue") or link.get("inwardIssue")
             if sub:
-                links.append({
-                    "raw_id": sub.get("key", ""),
-                    "source": "JIRA",
-                    "relationship": (
-                        (link.get("type") or {}).get("name",
-                                                      "referenced")),
-                })
+                links.append(
+                    {
+                        "raw_id": sub.get("key", ""),
+                        "source": "JIRA",
+                        "relationship": (
+                            (link.get("type") or {}).get("name", "referenced")
+                        ),
+                    }
+                )
 
         # 2. Remote web links — GitHub PRs and external trackers
-        for rlink in (fields.get("remotelinks") or []):
-            url = ((rlink.get("object") or {}).get("url") or "")
+        for rlink in fields.get("remotelinks") or []:
+            url = (rlink.get("object") or {}).get("url") or ""
             if not url:
                 continue
             # GitHub PR pattern
@@ -227,12 +272,14 @@ class JiraConnector(BaseConnector):
                 try:
                     pr_id = url.rstrip("/").split("/")[-1]
                     if pr_id.isdigit():
-                        links.append({
-                            "raw_id": pr_id,
-                            "source": "GitHub",
-                            "relationship": "Pull Request",
-                            "url": url,
-                        })
+                        links.append(
+                            {
+                                "raw_id": pr_id,
+                                "source": "GitHub",
+                                "relationship": "Pull Request",
+                                "url": url,
+                            }
+                        )
                 except Exception:
                     pass
             # GitHub issue pattern
@@ -240,12 +287,14 @@ class JiraConnector(BaseConnector):
                 try:
                     issue_id = url.rstrip("/").split("/")[-1]
                     if issue_id.isdigit():
-                        links.append({
-                            "raw_id": issue_id,
-                            "source": "GitHub",
-                            "relationship": "Issue Reference",
-                            "url": url,
-                        })
+                        links.append(
+                            {
+                                "raw_id": issue_id,
+                                "source": "GitHub",
+                                "relationship": "Issue Reference",
+                                "url": url,
+                            }
+                        )
                 except Exception:
                     pass
             # Bugzilla pattern
@@ -253,27 +302,31 @@ class JiraConnector(BaseConnector):
                 try:
                     bz_id = url.split("id=")[-1].split("&")[0]
                     if bz_id.isdigit():
-                        links.append({
-                            "raw_id": bz_id,
-                            "source": "Bugzilla",
-                            "relationship": "See Also",
-                            "url": url,
-                        })
+                        links.append(
+                            {
+                                "raw_id": bz_id,
+                                "source": "Bugzilla",
+                                "relationship": "See Also",
+                                "url": url,
+                            }
+                        )
                 except Exception:
                     pass
 
         # 3. Scan description text for JIRA ticket IDs
         desc = str(fields.get("description") or "")
         import re
-        for match in re.finditer(
-                r'\b([A-Z]{2,10}-\d{3,6})\b', desc):
+
+        for match in re.finditer(r"\b([A-Z]{2,10}-\d{3,6})\b", desc):
             raw_id = match.group(1)
             if raw_id != raw_payload.get("key", ""):
-                links.append({
-                    "raw_id": raw_id,
-                    "source": "JIRA",
-                    "relationship": "Mentioned",
-                })
+                links.append(
+                    {
+                        "raw_id": raw_id,
+                        "source": "JIRA",
+                        "relationship": "Mentioned",
+                    }
+                )
 
         # Deduplicate by raw_id
         seen = set()
@@ -299,13 +352,15 @@ class JiraConnector(BaseConnector):
                         continue
                     author = (entry.get("author") or {}).get("displayName", "")
                     for item in entry.get("items") or []:
-                        changes.append(ChangeEvent(
-                            field=item.get("field", ""),
-                            old_value=item.get("fromString") or "",
-                            new_value=item.get("toString") or "",
-                            changed_at=created,
-                            changed_by=author,
-                        ))
+                        changes.append(
+                            ChangeEvent(
+                                field=item.get("field", ""),
+                                old_value=item.get("fromString") or "",
+                                new_value=item.get("toString") or "",
+                                changed_at=created,
+                                changed_by=author,
+                            )
+                        )
                 return changes
         except Exception:
             return []

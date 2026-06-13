@@ -20,16 +20,19 @@ class ConnectionManager:
         self.active_connections.pop(case_id, None)
         log.info("WebSocket disconnected", case_id=case_id)
 
-    async def send_panel_update(self, case_id: str, panel_name: str, data: dict) -> None:
+    async def send_panel_update(
+        self, case_id: str, panel_name: str, data: dict
+    ) -> None:
         ws = self.active_connections.get(case_id)
         if ws:
             try:
                 await ws.send_json({"panel": panel_name, "data": data})
             except Exception as e:
-                log.warning("Failed to send panel update", case_id=case_id, error=str(e))
+                log.warning(
+                    "Failed to send panel update", case_id=case_id, error=str(e)
+                )
 
-    async def subscribe_and_forward(self, case_id: str,
-                                     websocket: WebSocket) -> None:
+    async def subscribe_and_forward(self, case_id: str, websocket: WebSocket) -> None:
         pubsub = None
         try:
             r = await get_redis()
@@ -41,26 +44,25 @@ class ConnectionManager:
             sent = set()
             try:
                 for parsed in await get_stored_panels(case_id):
-                    name = parsed.get(
-                        "panel", parsed.get("type", ""))
+                    name = parsed.get("panel", parsed.get("type", ""))
                     await websocket.send_json(parsed)
                     sent.add(name)
-                    log.info("Replayed panel",
-                             case_id=case_id, panel=name)
+                    log.info("Replayed panel", case_id=case_id, panel=name)
                     if parsed.get("type") == "pipeline_done":
                         return
             except Exception as e:
-                log.warning("Replay error",
-                            case_id=case_id, error=str(e))
+                log.warning("Replay error", case_id=case_id, error=str(e))
 
             # Listen for new messages
             last_ping = time.monotonic()
             while True:
                 if time.monotonic() - last_ping >= 15:
-                    await websocket.send_json({
-                        "type": "heartbeat",
-                        "case_id": case_id,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "heartbeat",
+                            "case_id": case_id,
+                        }
+                    )
                     last_ping = time.monotonic()
 
                 message = await pubsub.get_message(
@@ -74,8 +76,7 @@ class ConnectionManager:
                 raw = message.get("data", "")
                 try:
                     parsed = json.loads(raw)
-                    panel = parsed.get(
-                        "panel", parsed.get("type", ""))
+                    panel = parsed.get("panel", parsed.get("type", ""))
                     if panel in sent:
                         continue
                     await websocket.send_json(parsed)

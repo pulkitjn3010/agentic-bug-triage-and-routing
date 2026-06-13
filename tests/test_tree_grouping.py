@@ -80,12 +80,10 @@ async def test_related_tickets_are_persisted_as_group_children(monkeypatch):
     async def no_existing_ticket(_db, _ticket_id, _source_id):
         return None
 
-    monkeypatch.setattr(
-        group_registry, "get_group_for_any_ticket", no_existing_group)
+    monkeypatch.setattr(group_registry, "get_group_for_any_ticket", no_existing_group)
     monkeypatch.setattr(group_registry, "get_next_group_id", next_group_id)
     monkeypatch.setattr(group_registry, "create_group", create_group)
-    monkeypatch.setattr(group_registry, "get_group_for_ticket",
-                        no_existing_ticket)
+    monkeypatch.setattr(group_registry, "get_group_for_ticket", no_existing_ticket)
 
     group_id = await group_registry.persist_related_issue_group(
         db,
@@ -126,15 +124,17 @@ async def test_related_tickets_are_persisted_as_group_children(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bugs_returns_expanded_group_with_root_and_children():
-    live_bugs = [{
-        "ticket_id": "STO-1",
-        "source_id": "jira-storage",
-        "system_type": "jira",
-        "title": "Primary live title",
-        "severity": "P1",
-        "status": "open",
-        "url": "https://jira.example/STO-1",
-    }]
+    live_bugs = [
+        {
+            "ticket_id": "STO-1",
+            "source_id": "jira-storage",
+            "system_type": "jira",
+            "title": "Primary live title",
+            "severity": "P1",
+            "status": "open",
+            "url": "https://jira.example/STO-1",
+        }
+    ]
     mappings = [
         BugGroupMapping(
             group_id="BT-001",
@@ -162,27 +162,33 @@ async def test_bugs_returns_expanded_group_with_root_and_children():
             similarity_reason="Same stack trace",
         ),
     ]
-    db = SequencedDb([
-        FakeExecuteResult(rows=[
-            SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-001")
-        ]),
-        FakeExecuteResult(scalars=[
-            SystemGroupRegistry(
-                group_id="BT-001",
-                title="Storage group",
-                priority="P1",
-                status="active",
-            )
-        ]),
-        FakeExecuteResult(scalars=mappings),
-        FakeExecuteResult(scalars=[
-            AuditLog(
-                bug_id="STO-1",
-                step="pipeline_complete",
-                summary={"severity": "P1", "confidence": 0.9},
-            )
-        ]),
-    ])
+    db = SequencedDb(
+        [
+            FakeExecuteResult(
+                rows=[SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-001")]
+            ),
+            FakeExecuteResult(
+                scalars=[
+                    SystemGroupRegistry(
+                        group_id="BT-001",
+                        title="Storage group",
+                        priority="P1",
+                        status="active",
+                    )
+                ]
+            ),
+            FakeExecuteResult(scalars=mappings),
+            FakeExecuteResult(
+                scalars=[
+                    AuditLog(
+                        bug_id="STO-1",
+                        step="pipeline_complete",
+                        summary={"severity": "P1", "confidence": 0.9},
+                    )
+                ]
+            ),
+        ]
+    )
 
     result = await assemble_grouped_bug_list(live_bugs, db)
 
@@ -199,32 +205,36 @@ async def test_bugs_returns_expanded_group_with_root_and_children():
 @pytest.mark.asyncio
 async def test_group_children_return_even_if_not_in_live_page():
     live_bugs = [{"ticket_id": "STO-1", "title": "Primary"}]
-    db = SequencedDb([
-        FakeExecuteResult(rows=[
-            SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-002")
-        ]),
-        FakeExecuteResult(scalars=[
-            SystemGroupRegistry(group_id="BT-002", title="Group")
-        ]),
-        FakeExecuteResult(scalars=[
-            BugGroupMapping(
-                group_id="BT-002",
-                raw_ticket_id="STO-1",
-                source_id="jira-storage",
-                system_type="jira",
-                role="root",
+    db = SequencedDb(
+        [
+            FakeExecuteResult(
+                rows=[SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-002")]
             ),
-            BugGroupMapping(
-                group_id="BT-002",
-                raw_ticket_id="BZ-99",
-                source_id="bugzilla",
-                system_type="bugzilla",
-                role="child",
-                title="Persisted child only",
+            FakeExecuteResult(
+                scalars=[SystemGroupRegistry(group_id="BT-002", title="Group")]
             ),
-        ]),
-        FakeExecuteResult(scalars=[]),
-    ])
+            FakeExecuteResult(
+                scalars=[
+                    BugGroupMapping(
+                        group_id="BT-002",
+                        raw_ticket_id="STO-1",
+                        source_id="jira-storage",
+                        system_type="jira",
+                        role="root",
+                    ),
+                    BugGroupMapping(
+                        group_id="BT-002",
+                        raw_ticket_id="BZ-99",
+                        source_id="bugzilla",
+                        system_type="bugzilla",
+                        role="child",
+                        title="Persisted child only",
+                    ),
+                ]
+            ),
+            FakeExecuteResult(scalars=[]),
+        ]
+    )
 
     result = await assemble_grouped_bug_list(live_bugs, db)
 
@@ -236,32 +246,36 @@ async def test_group_children_return_even_if_not_in_live_page():
 @pytest.mark.asyncio
 async def test_old_fallback_groups_without_root_still_render_shape():
     live_bugs = [{"ticket_id": "STO-1", "title": "Primary"}]
-    db = SequencedDb([
-        FakeExecuteResult(rows=[
-            SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-003")
-        ]),
-        FakeExecuteResult(scalars=[
-            SystemGroupRegistry(group_id="BT-003", title="Old Group")
-        ]),
-        FakeExecuteResult(scalars=[
-            BugGroupMapping(
-                group_id="BT-003",
-                raw_ticket_id="STO-1",
-                source_id="jira-storage",
-                system_type="jira",
-                role="child",
+    db = SequencedDb(
+        [
+            FakeExecuteResult(
+                rows=[SimpleNamespace(raw_ticket_id="STO-1", group_id="BT-003")]
             ),
-            BugGroupMapping(
-                group_id="BT-003",
-                raw_ticket_id="GH-2",
-                source_id="github",
-                system_type="github",
-                role="child",
-                title="Old child",
+            FakeExecuteResult(
+                scalars=[SystemGroupRegistry(group_id="BT-003", title="Old Group")]
             ),
-        ]),
-        FakeExecuteResult(scalars=[]),
-    ])
+            FakeExecuteResult(
+                scalars=[
+                    BugGroupMapping(
+                        group_id="BT-003",
+                        raw_ticket_id="STO-1",
+                        source_id="jira-storage",
+                        system_type="jira",
+                        role="child",
+                    ),
+                    BugGroupMapping(
+                        group_id="BT-003",
+                        raw_ticket_id="GH-2",
+                        source_id="github",
+                        system_type="github",
+                        role="child",
+                        title="Old child",
+                    ),
+                ]
+            ),
+            FakeExecuteResult(scalars=[]),
+        ]
+    )
 
     result = await assemble_grouped_bug_list(live_bugs, db)
 

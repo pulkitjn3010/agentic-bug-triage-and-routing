@@ -5,6 +5,9 @@ from .enrichment import EnrichmentAgent
 from .ai_synthesis import AISynthesisAgent
 
 __all__ = [
-    "BaseAgent", "ContextFetchAgent", "CrossSystemFetchAgent",
-    "EnrichmentAgent", "AISynthesisAgent",
+    "BaseAgent",
+    "ContextFetchAgent",
+    "CrossSystemFetchAgent",
+    "EnrichmentAgent",
+    "AISynthesisAgent",
 ]

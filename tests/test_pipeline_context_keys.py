@@ -38,7 +38,7 @@ class FakeRedis:
         values = self.lists.get(key, [])
         if end == -1:
             return values[start:]
-        return values[start:end + 1]
+        return values[start : end + 1]
 
     async def expire(self, key, ttl):
         self.calls.append(("expire", key, ttl))
@@ -105,11 +105,7 @@ def test_pipeline_done_publishes_after_ai_summary_failed(monkeypatch):
     run(orch._publish_ai_summary_failed("case-1", {"errors": {}}))
     run(orch._publish_complete("case-1", {}, 123))
 
-    published = [
-        json.loads(call[2])
-        for call in fake.calls
-        if call[0] == "publish"
-    ]
+    published = [json.loads(call[2]) for call in fake.calls if call[0] == "publish"]
     assert published[0]["panel"] == "ai_summary"
     assert published[0]["status"] == "failed"
     assert published[-1]["type"] == "pipeline_done"

@@ -11,20 +11,23 @@ from orchestrator.redis_client import (
 
 # ── Helper (exact copy from cases_routes.py) ──────────────────────
 
+
 def _context_from_panels(panels: list[dict]) -> dict:
     ctx = {}
     for event in panels or []:
         panel = event.get("panel")
         data = event.get("data") or {}
         if panel == "bug_context":
-            ctx.update({
-                "bug_context": data.get("bug_context") or {},
-                "primary_ticket": data.get("primary_ticket"),
-                "components": data.get("components") or [],
-                "customer_cases": data.get("customer_cases") or [],
-                "customer_signals": data.get("customer_signals") or [],
-                "source_references": data.get("source_references") or [],
-            })
+            ctx.update(
+                {
+                    "bug_context": data.get("bug_context") or {},
+                    "primary_ticket": data.get("primary_ticket"),
+                    "components": data.get("components") or [],
+                    "customer_cases": data.get("customer_cases") or [],
+                    "customer_signals": data.get("customer_signals") or [],
+                    "source_references": data.get("source_references") or [],
+                }
+            )
         elif panel == "related_issues":
             ctx["related_tickets"] = data.get("related_tickets") or []
             ctx["sources_queried"] = data.get("sources_queried") or []
@@ -43,6 +46,7 @@ def _context_from_panels(panels: list[dict]) -> dict:
 
 # ── Public service function ───────────────────────────────────────
 
+
 async def get_case_result(case_id: str) -> dict:
     cached = await get_cached_case_result(case_id)
     stored_panels = await get_stored_panels(case_id)
@@ -50,9 +54,7 @@ async def get_case_result(case_id: str) -> dict:
         if not stored_panels:
             raise HTTPException(
                 status_code=404,
-                detail=(
-                    "Case result not found. "
-                    "Results are cached for 2 minutes."),
+                detail=("Case result not found. " "Results are cached for 2 minutes."),
             )
         return {
             "case_id": case_id,

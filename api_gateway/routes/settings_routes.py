@@ -6,8 +6,11 @@ from urllib.parse import urlparse
 from ..auth import get_current_user, User
 from orchestrator.db.session import AsyncSessionLocal
 from orchestrator.db.repositories.source_registry import (
-    get_all_sources, get_source_by_id, create_source,
-    set_source_enabled, update_source
+    get_all_sources,
+    get_source_by_id,
+    create_source,
+    set_source_enabled,
+    update_source,
 )
 from orchestrator.connectors.registry import ConnectorRegistry, SYSTEM_TYPE_TO_CLASS
 from ..services import connection_service
@@ -15,14 +18,14 @@ from ..services import connection_service
 router = APIRouter(tags=["settings"])
 
 SYSTEM_TYPE_LABELS = {
-    "github":          {"label": "GitHub",           "icon": "GH",   "color": "purple"},
-    "jira":            {"label": "JIRA",             "icon": "J",    "color": "blue"},
-    "jira_apache":     {"label": "Apache JIRA",      "icon": "J",    "color": "blue"},
-    "jira_cloud":      {"label": "JIRA Cloud",       "icon": "J",    "color": "blue"},
-    "bugzilla":        {"label": "Bugzilla",         "icon": "BZ",   "color": "amber"},
-    "confluence":      {"label": "Confluence",       "icon": "CF",   "color": "teal"},
-    "customer_portal": {"label": "Customer Portal",  "icon": "CP",   "color": "green"},
-    "support_kb":      {"label": "Support KB",       "icon": "KB",   "color": "teal"},
+    "github": {"label": "GitHub", "icon": "GH", "color": "purple"},
+    "jira": {"label": "JIRA", "icon": "J", "color": "blue"},
+    "jira_apache": {"label": "Apache JIRA", "icon": "J", "color": "blue"},
+    "jira_cloud": {"label": "JIRA Cloud", "icon": "J", "color": "blue"},
+    "bugzilla": {"label": "Bugzilla", "icon": "BZ", "color": "amber"},
+    "confluence": {"label": "Confluence", "icon": "CF", "color": "teal"},
+    "customer_portal": {"label": "Customer Portal", "icon": "CP", "color": "green"},
+    "support_kb": {"label": "Support KB", "icon": "KB", "color": "teal"},
 }
 
 
@@ -83,7 +86,9 @@ def _health_status_from_result(result: dict | None, enabled: bool) -> str:
         return "Connected"
     if result.get("connected") is False or result.get("is_connected") is False:
         return "Disconnected"
-    nested = result.get("test_result") if isinstance(result.get("test_result"), dict) else {}
+    nested = (
+        result.get("test_result") if isinstance(result.get("test_result"), dict) else {}
+    )
     if nested:
         nested_status = _health_status_from_result(nested, enabled)
         if nested_status:
@@ -101,41 +106,40 @@ def _health_status_from_result(result: dict | None, enabled: bool) -> str:
 
 
 def _format_source(s, health: dict | None = None) -> dict:
-    meta = SYSTEM_TYPE_LABELS.get(s.system_type, {"label": s.system_type, "icon": "?", "color": "gray"})
+    meta = SYSTEM_TYPE_LABELS.get(
+        s.system_type, {"label": s.system_type, "icon": "?", "color": "gray"}
+    )
     token_env_var = s.auth_secret_ref or ""
     token_present = bool(os.environ.get(token_env_var, ""))
     access_type = _access_type_for_source(s, token_present)
     health_status = _health_status_from_result(health, s.enabled)
     return {
-        "source_id":       s.source_id,
-        "display_name":    s.display_name,
-        "system_type":     s.system_type,
-        "system_label":    meta["label"],
-        "icon":            meta["icon"],
-        "color":           meta["color"],
-        "base_url":        s.base_url,
-        "port":            s.port,
-        "auth_type":       s.auth_type,
-        "project_key":     s.project_key or "",
-        "ticket_prefix":   s.ticket_prefix or "",
+        "source_id": s.source_id,
+        "display_name": s.display_name,
+        "system_type": s.system_type,
+        "system_label": meta["label"],
+        "icon": meta["icon"],
+        "color": meta["color"],
+        "base_url": s.base_url,
+        "port": s.port,
+        "auth_type": s.auth_type,
+        "project_key": s.project_key or "",
+        "ticket_prefix": s.ticket_prefix or "",
         "auth_secret_ref": token_env_var,
-        "token_present":   token_present,
-        "token_masked":    "••••••••" if token_present else "(not set — public API)",
-        "access_type":     access_type,
-        "health_status":   health_status,
-        "health_error":    (health or {}).get("error", ""),
-        "latency_ms":      (health or {}).get("latency_ms", 0),
-        "enabled":         s.enabled,
-        "created_at":      s.created_at.isoformat() if s.created_at else "",
+        "token_present": token_present,
+        "token_masked": "••••••••" if token_present else "(not set — public API)",
+        "access_type": access_type,
+        "health_status": health_status,
+        "health_error": (health or {}).get("error", ""),
+        "latency_ms": (health or {}).get("latency_ms", 0),
+        "enabled": s.enabled,
+        "created_at": s.created_at.isoformat() if s.created_at else "",
     }
 
 
 @router.get("/settings/connections")
 async def list_connections(user: User = Depends(get_current_user)):
     return await connection_service.list_connections()
-
-
-
 
 
 @router.post("/settings/connections")
@@ -153,9 +157,6 @@ async def add_connection(
         project_key=body.project_key,
         ticket_prefix=body.ticket_prefix,
     )
-
-
-
 
 
 @router.put("/settings/connections/{source_id}")
@@ -221,8 +222,7 @@ async def update_connection_legacy(
     user: User = Depends(get_current_user),
 ):
     if user.role not in ("admin", "engineer"):
-        raise HTTPException(status_code=403,
-                            detail="Not authorized")
+        raise HTTPException(status_code=403, detail="Not authorized")
     try:
         async with AsyncSessionLocal() as db:
             from sqlalchemy import update as sql_update
@@ -241,12 +241,12 @@ async def update_connection_legacy(
                 # Store token reference
                 secret_ref = f"{source_id}_token".upper()
                 import os
+
                 os.environ[secret_ref] = payload["token"]
                 update_data["auth_secret_ref"] = secret_ref
 
             if not update_data:
-                raise HTTPException(status_code=400,
-                                    detail="No fields to update")
+                raise HTTPException(status_code=400, detail="No fields to update")
 
             await db.execute(
                 sql_update(SourceRegistry)
@@ -257,6 +257,7 @@ async def update_connection_legacy(
 
         # Invalidate connector cache
         from orchestrator.connectors.registry import ConnectorRegistry
+
         ConnectorRegistry.invalidate_cache()
 
         return {"status": "updated", "source_id": source_id}
@@ -273,6 +274,3 @@ async def test_connection(
     user: User = Depends(get_current_user),
 ):
     return await connection_service.test_connection(source_id)
-
-
-

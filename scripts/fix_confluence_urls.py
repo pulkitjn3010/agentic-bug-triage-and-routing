@@ -1,8 +1,8 @@
 import asyncio
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from orchestrator.db.session import AsyncSessionLocal
 from orchestrator.db.models import SourceRegistry
@@ -12,10 +12,10 @@ from sqlalchemy import select, update
 CONFLUENCE_URL_MAP = {
     # source_id fragment → correct base_url
     # Add your actual source_ids here
-    "apache-spark-wiki":  "https://cwiki.apache.org/confluence",
-    "apache-kafka-wiki":  "https://cwiki.apache.org/confluence",
+    "apache-spark-wiki": "https://cwiki.apache.org/confluence",
+    "apache-kafka-wiki": "https://cwiki.apache.org/confluence",
     "apache-hadoop-wiki": "https://cwiki.apache.org/confluence",
-    "apache-flink-wiki":  "https://cwiki.apache.org/confluence",
+    "apache-flink-wiki": "https://cwiki.apache.org/confluence",
 }
 
 ATLASSIAN_CORRECT_URL = "https://cpp3-hpe.atlassian.net/wiki"
@@ -31,8 +31,7 @@ MOCK_DOMAINS = [
 async def fix():
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(SourceRegistry)
-            .where(SourceRegistry.system_type == "confluence")
+            select(SourceRegistry).where(SourceRegistry.system_type == "confluence")
         )
         connectors = list(result.scalars().all())
 
@@ -54,8 +53,7 @@ async def fix():
             if conn.source_id in CONFLUENCE_URL_MAP:
                 new_url = CONFLUENCE_URL_MAP[conn.source_id]
             # Check if base_url is a mock domain
-            elif any(m in (conn.base_url or "")
-                     for m in MOCK_DOMAINS):
+            elif any(m in (conn.base_url or "") for m in MOCK_DOMAINS):
                 new_url = ATLASSIAN_CORRECT_URL
             # Check if it is the HPE Atlassian instance
             elif "atlassian.net" in (conn.base_url or ""):
