@@ -493,10 +493,11 @@ class CrossSystemFetchAgent(BaseAgent):
             f"No preamble, no explanation. JSON array only."
         )
 
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         try:
             client = AsyncGroq(api_key=groq_api_key)
             resp = await client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model=groq_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=800,
