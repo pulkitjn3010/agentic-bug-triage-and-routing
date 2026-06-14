@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 from orchestrator.db.models import UserRole
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> UserRole | None:
