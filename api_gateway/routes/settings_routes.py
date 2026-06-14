@@ -43,7 +43,7 @@ class ConnectionUpdate(BaseModel):
 
 @router.get("/settings/connections")
 async def list_connections(user: User = Depends(get_current_user)):
-    return await connection_service.list_connections()
+    return await connection_service.list_connections(user_id=user.user_id)
 
 
 @router.post("/settings/connections")
@@ -60,6 +60,7 @@ async def add_connection(
         auth_token=body.auth_token,
         project_key=body.project_key,
         ticket_prefix=body.ticket_prefix,
+        user_id=user.user_id,
     )
 
 
@@ -69,9 +70,64 @@ async def update_connection(
     body: ConnectionUpdate,
     user: User = Depends(get_current_user),
 ):
-    return await connection_service.update_connection(
-        source_id, body.dict(exclude_unset=True)
-    )
+    async with AsyncSessionLocal() as db:
+        source = await get_source_by_id(db, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        updates = {}
+        if body.display_name is not None:
+            updates["display_name"] = body.display_name
+        if body.base_url is not None:
+            updates["base_url"] = body.base_url.rstrip("/")
+        if body.port is not None:
+            updates["port"] = body.port
+        if body.auth_type is not None:
+            updates["auth_type"] = body.auth_type
+        if body.project_key is not None:
+            updates["project_key"] = body.project_key
+        if body.ticket_prefix is not None:
+            updates["ticket_prefix"] = body.ticket_prefix
+        if body.enabled is not None:
+            updates["enabled"] = body.enabled
+
+        new_token = body.auth_token or body.token
+        if new_token:
+            env_var = source.auth_secret_ref or ""
+            if env_var:
+                os.environ[env_var] = new_token
+
+        if source.owner_id is None:
+            # It's a global template, create or update a user override
+            override_id = f"{user.user_id}-{source_id}"
+            override = await get_source_by_id(db, override_id)
+            if override:
+                await update_source(db, override_id, updates)
+                source = await get_source_by_id(db, override_id)
+            else:
+                from orchestrator.db.repositories.source_registry import SourceRegistry
+                new_override = SourceRegistry(
+                    source_id=override_id,
+                    display_name=updates.get("display_name", source.display_name),
+                    system_type=source.system_type,
+                    base_url=updates.get("base_url", source.base_url),
+                    port=updates.get("port", source.port),
+                    auth_type=updates.get("auth_type", source.auth_type),
+                    auth_secret_ref=source.auth_secret_ref,
+                    project_key=updates.get("project_key", source.project_key),
+                    ticket_prefix=updates.get("ticket_prefix", source.ticket_prefix),
+                    owner_id=user.user_id,
+                    enabled=updates.get("enabled", source.enabled),
+                )
+                db.add(new_override)
+                await db.commit()
+                source = new_override
+        elif updates:
+            await update_source(db, source_id, updates)
+            source = await get_source_by_id(db, source_id)
+
+    ConnectorRegistry.invalidate_cache()
+    return {"connection": _format_source(source), "status": "updated"}
 
 
 @router.delete("/settings/connections/{source_id}")
@@ -79,7 +135,14 @@ async def remove_connection(
     source_id: str,
     user: User = Depends(get_current_user),
 ):
-    return await connection_service.remove_connection(source_id)
+    async with AsyncSessionLocal() as db:
+        source = await get_source_by_id(db, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        await set_source_enabled(db, source_id, False, user_id=user.user_id)
+
+    ConnectorRegistry.invalidate_cache()
+    return {"status": "disabled", "source_id": source_id}
 
 
 @router.put("/connections/{source_id}")

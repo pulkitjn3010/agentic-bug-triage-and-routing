@@ -9,14 +9,14 @@ async def get_next_group_id(db: AsyncSession) -> str:
     return f"BT-{(count + 1):03d}"
 
 
-async def create_group(
-    db: AsyncSession, group_id: str, title: str, priority: str, primary_source_id: str
-) -> SystemGroupRegistry:
+async def create_group(db: AsyncSession, group_id: str, title: str,
+                        priority: str, primary_source_id: str, owner_id: str | None = None) -> SystemGroupRegistry:
     group = SystemGroupRegistry(
         group_id=group_id,
         title=title,
         priority=priority,
         primary_source_id=primary_source_id,
+        owner_id=owner_id,
         status="active",
     )
     db.add(group)
@@ -109,8 +109,10 @@ def _ticket_ref(ticket: dict, role: str) -> dict:
 
 
 async def persist_related_issue_group(
-    db: AsyncSession, primary_ticket: dict, related_tickets: list[dict]
-) -> str | None:
+        db: AsyncSession,
+        primary_ticket: dict,
+        related_tickets: list[dict],
+        owner_id: str | None = None) -> str | None:
     if not primary_ticket or not primary_ticket.get("ticket_id"):
         return None
 
@@ -157,6 +159,7 @@ async def persist_related_issue_group(
             primary_ticket.get("title", "Bug Group")[:300],
             primary_ticket.get("severity", "Unknown"),
             primary_ticket.get("source_id", ""),
+            owner_id=owner_id,
         )
 
     for ticket in tickets:

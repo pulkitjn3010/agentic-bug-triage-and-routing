@@ -14,7 +14,7 @@ from orchestrator.redis_client import get_cached_buglist
 _BUG_SOURCE_TYPES = {"github", "jira", "jira_apache", "bugzilla"}
 
 
-async def get_metrics() -> dict:
+async def get_metrics(user_id: str | None = None) -> dict:
     async with AsyncSessionLocal() as db:
         summary = await get_metrics_summary(db)
         recent = await list_recent_pipeline_completions(db, limit=10)
@@ -23,8 +23,11 @@ async def get_metrics() -> dict:
         )
         failed_triages = len(failed_result.scalars().all())
 
-    all_connectors = await ConnectorRegistry.get_all_enabled()
-    bug_connectors = [c for c in all_connectors if c.system_type in _BUG_SOURCE_TYPES]
+    all_connectors = await ConnectorRegistry.get_all_enabled(user_id=user_id)
+    bug_connectors = [
+        c for c in all_connectors
+        if c.system_type in _BUG_SOURCE_TYPES
+    ]
 
     by_severity: dict[str, int] = {"P0": 0, "P1": 0, "P2": 0, "P3": 0, "Unknown": 0}
     source_counts: dict[str, int] = {}

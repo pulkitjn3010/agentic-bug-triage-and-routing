@@ -63,10 +63,17 @@ async def lifespan(app: FastAPI):
                         connectors = await ConnectorRegistry.get_all_enabled()
                         excluded = {"confluence", "customer_portal"}
 
+                        # Group by cache_key so we can log all shared users correctly
+                        grouped_connectors = {}
+                        for c in connectors:
+                            if c.system_type not in excluded:
+                                if c.cache_key not in grouped_connectors:
+                                    grouped_connectors[c.cache_key] = []
+                                grouped_connectors[c.cache_key].append(c)
+
                         fetch_tasks = [
-                            background_full_fetch([c])
-                            for c in connectors
-                            if c.system_type not in excluded
+                            _background_fetch_connector(c_list)
+                            for c_list in grouped_connectors.values()
                         ]
 
                         # return_exceptions=True prevents one slow

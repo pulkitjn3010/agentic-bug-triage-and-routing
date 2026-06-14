@@ -126,12 +126,11 @@ async def create_connection(
     auth_token: Optional[str],
     project_key: Optional[str],
     ticket_prefix: Optional[str],
+    user_id: str,
 ) -> dict:
     source_id = re.sub(r"[^a-z0-9]+", "-", display_name.lower()).strip("-")
-    source_id = f"{source_id}-{system_type}"
-    env_var_name = (
-        re.sub(r"[^A-Z0-9]+", "_", display_name.upper()).strip("_") + "_TOKEN"
-    )
+    source_id = f"{user_id}-{source_id}-{system_type}"
+    env_var_name = re.sub(r"[^A-Z0-9]+", "_", display_name.upper()).strip("_") + "_TOKEN"
 
     # SIDE EFFECT: env mutation happens before DB write — no rollback if DB write fails
     if auth_token:
@@ -168,33 +167,29 @@ async def create_connection(
     async with AsyncSessionLocal() as db:
         existing = await get_source_by_id(db, source_id)
         if existing:
-            raise HTTPException(
-                status_code=409, detail=f"Connection '{source_id}' already exists"
-            )
-        new_source = await create_source(
-            db,
-            {
-                "source_id": source_id,
-                "display_name": display_name,
-                "system_type": system_type,
-                "base_url": base_url,
-                "port": port,
-                "auth_type": auth_type or "bearer_token",
-                "auth_secret_ref": env_var_name,
-                "project_key": project_key or "",
-                "ticket_prefix": ticket_prefix or "",
-                "enabled": True,
-            },
-        )
+            raise HTTPException(status_code=409, detail=f"Connection '{source_id}' already exists")
+        new_source = await create_source(db, {
+            "source_id":       source_id,
+            "display_name":    display_name,
+            "system_type":     system_type,
+            "base_url":        base_url,
+            "port":            port,
+            "auth_type":       auth_type or "bearer_token",
+            "auth_secret_ref": env_var_name,
+            "project_key":     project_key or "",
+            "ticket_prefix":   ticket_prefix or "",
+            "owner_id":        user_id,
+            "enabled":         True,
+        })
         result = _format_source(new_source)
 
     ConnectorRegistry.invalidate_cache()
     return {"connection": result, "test_message": test_message, "status": "created"}
 
 
-async def list_connections() -> dict:
+async def list_connections(user_id: str) -> dict:
     async with AsyncSessionLocal() as db:
-        sources = await get_all_sources(db)
+        sources = await get_all_sources(db, user_id=user_id)
     health_by_source = {}
     try:
         health_results = await asyncio.wait_for(

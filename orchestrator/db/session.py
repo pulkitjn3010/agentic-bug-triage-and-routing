@@ -49,6 +49,8 @@ async def _ensure_bug_group_mapping_columns(conn) -> None:
         ADD COLUMN IF NOT EXISTS similarity_score DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS similarity_label VARCHAR(100),
         ADD COLUMN IF NOT EXISTS similarity_reason TEXT
-    """
-        )
-    )
+    """))
+    await conn.execute(text("""
+        ALTER TABLE audit_log
+        ADD COLUMN IF NOT EXISTS display_id INTEGER
+    """))
