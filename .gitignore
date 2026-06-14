@@ -1,4 +1,4 @@
-﻿.env
+.env
 .env.local
 .env.example
 *.env
@@ -11,3 +11,4 @@ dist/
 Projectcontext.md
 Sequence-Diagrams.pdf
 postgres_data/
+vite.config.js.timestamp-*
