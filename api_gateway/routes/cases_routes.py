@@ -87,6 +87,164 @@ async def debug_sources():
     }
 
 
+def get_bug_score(severity: str, updated_at: str) -> float:
+    sev_val = {
+        "P0": 4, "P1": 3, "P2": 2, "P3": 1
+    }.get(severity or "Unknown", 0)
+    ts = 0.0
+    if updated_at:
+        try:
+            s = str(updated_at).strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            if len(s) > 5 and s[-5] in ('+', '-'):
+                s = s[:-2] + ":" + s[-2:]
+            dt = datetime.fromisoformat(s)
+            ts = dt.timestamp()
+        except Exception:
+            pass
+    return sev_val * 10 + (ts / 2000000000.0)
+
+
+def _normalize_list_bug(ticket, connector) -> dict:
+    if dataclasses.is_dataclass(ticket):
+        data = dataclasses.asdict(ticket)
+    elif isinstance(ticket, dict):
+        data = dict(ticket)
+    else:
+        data = {
+            "ticket_id": getattr(ticket, "ticket_id", ""),
+            "title": getattr(ticket, "title", ""),
+            "severity": getattr(ticket, "severity", ""),
+            "status": getattr(ticket, "status", ""),
+            "assignee": getattr(ticket, "assignee", ""),
+            "updated_at": getattr(ticket, "updated_at", ""),
+            "url": getattr(ticket, "url", ""),
+        }
+
+    ticket_id = data.get("ticket_id") or data.get("id") or ""
+    system_type = data.get("system_type") or connector.system_type
+    source_id = data.get("source_id") or connector.source_id
+    base_url = getattr(connector, "base_url", "")
+    return {
+        "ticket_id": ticket_id,
+        "source": system_type,
+        "source_id": source_id,
+        "system_type": system_type,
+        "source_display_name": getattr(
+            connector, "display_name", connector.source_id),
+        "project_key": getattr(connector, "project_key", ""),
+        "title": data.get("title", ""),
+        "severity": data.get("severity") or "Unknown",
+        "status": data.get("status") or "open",
+        "assignee": data.get("assignee", ""),
+        "updated_at": data.get("updated_at", ""),
+        "url": sanitize_bug_url(
+            url=data.get("url", ""),
+            system_type=system_type,
+            bug_id=ticket_id,
+            base_url=base_url,
+        ),
+    }
+
+
+_FETCH_LOCKS = {}
+
+async def _fetch_buglist_for_connector(
+        connector,
+        status: str,
+        severity: str,
+        max_results: int) -> dict:
+    
+    lock_key = f"{connector.source_id}:{status}:{severity}"
+    if lock_key not in _FETCH_LOCKS:
+        _FETCH_LOCKS[lock_key] = asyncio.Lock()
+        
+    async with _FETCH_LOCKS[lock_key]:
+        # Check cache inside the lock to prevent stampede
+        cached = await get_cached_buglist(
+            connector.source_id, status, severity)
+        if cached is not None:
+            return {
+                "source_id": connector.source_id,
+                "bugs": cached,
+                "cache_status": "hit",
+                "error": None,
+            }
+
+        try:
+            tickets = await asyncio.wait_for(
+                connector.search_open_bugs(
+                    status=status,
+                    severity=severity,
+                    max_results=max_results,
+                ),
+                timeout=90.0,
+            )
+            bugs = [
+                _normalize_list_bug(ticket, connector)
+                for ticket in (tickets or [])
+            ]
+            await cache_buglist(
+                connector.source_id, status, severity, bugs,
+                ttl=REDIS_TTL_BUGLIST_SECONDS)
+            return {
+                "source_id": connector.source_id,
+                "bugs": bugs,
+                "cache_status": "miss",
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "source_id": connector.source_id,
+                "bugs": [],
+                "cache_status": "error",
+                "error": {
+                    "source_id": connector.source_id,
+                    "system_type": connector.system_type,
+                    "message": str(e)[:120],
+                },
+            }
+
+
+async def _background_fetch_connector(connectors: list) -> None:
+    if not connectors:
+        return
+    
+    primary_connector = connectors[0]
+    is_shared = len(connectors) > 1
+    shared_text = " (shared cache)" if is_shared else ""
+
+    try:
+        tickets = await asyncio.wait_for(
+            primary_connector.search_open_bugs(
+                status="open",
+                severity="",
+                max_results=120,
+            ),
+            timeout=90.0,
+        )
+
+        if tickets:
+            sanitized_data = [
+                _normalize_list_bug(ticket, primary_connector)
+                for ticket in tickets
+            ]
+
+            await cache_buglist(
+                primary_connector.cache_key, "open", "",
+                sanitized_data, ttl=REDIS_TTL_BUGLIST_SECONDS)
+
+            for c in connectors:
+                print(f"[BugList] {c.source_id}: "
+                      f"{len(sanitized_data)} bugs cached{shared_text}")
+
+    except Exception as e:
+        for c in connectors:
+            print(f"[BugList] {c.source_id} "
+                  f"background fetch error{shared_text}: {e}")
+
+
 # ── GET /bugs ─────────────────────────────────────────────────────
 
 
@@ -113,13 +271,19 @@ async def get_bugs(
         project=project,
         sort_field=sort_field,
         sort_order=sort_order,
+        user_id=user.user_id,
     )
 
 
 @router.post("/bugs/warm")
 async def warm_bug_cache(user: User = Depends(get_current_user)):
-    connectors = await ConnectorRegistry.get_all_enabled()
-    asyncio.create_task(bug_service.background_full_fetch(connectors))
+    connectors = await ConnectorRegistry.get_all_enabled(user_id=user.user_id)
+    grouped = {}
+    for c in connectors:
+        if c.is_bug_source:
+            grouped.setdefault(c.cache_key, []).append(c)
+    for c_list in grouped.values():
+        asyncio.create_task(_background_fetch_connector(c_list))
     return {
         "status": "warming",
         "connectors": len(connectors),
@@ -145,12 +309,12 @@ async def get_bug_status(
     bug_id: str,
     user: User = Depends(get_current_user),
 ):
-    return await bug_service.get_bug_status(bug_id)
+    return await bug_service.get_bug_status(bug_id, user_id=user.user_id)
 
 
 @router.get("/metrics")
 async def get_metrics(user: User = Depends(get_current_user)):
-    return await metrics_service.get_metrics()
+    return await metrics_service.get_metrics(user_id=user.user_id)
 
 
 @router.get("/history/triage")
@@ -159,29 +323,31 @@ async def get_triage_history(
     user: User = Depends(get_current_user),
 ):
     async with AsyncSessionLocal() as db:
-        entries = await list_recent_pipeline_completions(db, limit=limit)
+        entries = await list_recent_pipeline_completions(
+            db, limit=limit, engineer_id=user.user_id)
 
     results = []
     for e in entries:
         summary = e.summary or {}
-        results.append(
-            {
-                "id": e.id,
-                "case_id": e.case_id or "",
-                "bug_id": e.bug_id,
-                "source_id": e.source_id or "",
-                "engineer_id": e.engineer_id or "",
-                "severity": (
-                    summary.get("severity")
-                    or summary.get("unified_severity", "Unknown")
-                ),
-                "confidence": summary.get("confidence", 0),
-                "root_cause": (summary.get("root_cause") or "")[:120],
-                "duration_ms": e.duration_ms or 0,
-                "systems_queried": e.systems_queried or [],
-                "triaged_at": (e.created_at.isoformat() if e.created_at else None),
-            }
-        )
+        results.append({
+            "id":              e.display_id or e.id,
+            "case_id":         e.case_id or "",
+            "bug_id":          e.bug_id,
+            "source_id":       e.source_id or "",
+            "engineer_id":     e.engineer_id or "",
+            "severity":        (
+                summary.get("severity")
+                or summary.get(
+                    "unified_severity", "Unknown")),
+            "confidence":      summary.get("confidence", 0),
+            "root_cause":      (
+                summary.get("root_cause") or "")[:120],
+            "duration_ms":     e.duration_ms or 0,
+            "systems_queried": e.systems_queried or [],
+            "triaged_at":      (
+                e.created_at.isoformat()
+                if e.created_at else None),
+        })
     return results
 
 

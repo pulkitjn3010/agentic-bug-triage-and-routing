@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .kafka_client import kafka_lifespan
 from .routes import auth_router, cases_router, triage_router, settings_router
 from .config import ENABLE_LOCAL_PIPELINE_FALLBACK
-from .services.bug_service import background_full_fetch
+from .routes.cases_routes import _background_fetch_connector
 
 log = structlog.get_logger()
 
@@ -61,12 +61,21 @@ async def lifespan(app: FastAPI):
 
                         ConnectorRegistry.invalidate_cache()
                         connectors = await ConnectorRegistry.get_all_enabled()
+                        # Only ingest for active user connections (exclude unowned global templates)
+                        connectors = [c for c in connectors if getattr(c, "owner_id", None) is not None]
                         excluded = {"confluence", "customer_portal"}
 
+                        # Group by cache_key so we can log all shared users correctly
+                        grouped_connectors = {}
+                        for c in connectors:
+                            if c.system_type not in excluded:
+                                if c.cache_key not in grouped_connectors:
+                                    grouped_connectors[c.cache_key] = []
+                                grouped_connectors[c.cache_key].append(c)
+
                         fetch_tasks = [
-                            background_full_fetch([c])
-                            for c in connectors
-                            if c.system_type not in excluded
+                            _background_fetch_connector(c_list)
+                            for c_list in grouped_connectors.values()
                         ]
 
                         # return_exceptions=True prevents one slow

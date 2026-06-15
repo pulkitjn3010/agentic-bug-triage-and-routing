@@ -31,6 +31,12 @@ class BaseConnector(ABC):
         self.token = token
 
     @property
+    def cache_key(self) -> str:
+        import hashlib
+        raw = f"{self.system_type}:{self.base_url}:{self.project_key}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    @property
     def is_bug_source(self) -> bool:
         return self.system_type in self.BUG_SOURCE_TYPES
 
