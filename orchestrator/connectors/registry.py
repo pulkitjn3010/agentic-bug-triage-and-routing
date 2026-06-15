@@ -109,6 +109,7 @@ async def load_connectors_from_db() -> list[BaseConnector]:
             connector.auth_type = row.auth_type
             connector.auth_secret_ref = row.auth_secret_ref
             connector.port = row.port
+            connector.owner_id = row.owner_id
             connectors.append(connector)
         except Exception as e:
             log.warning(
@@ -125,17 +126,17 @@ async def load_connectors_from_db() -> list[BaseConnector]:
 
 class ConnectorRegistry:
     @classmethod
-    async def get_all_enabled(cls) -> list[BaseConnector]:
-        if (
-            _connector_cache
-            and time.time() - _connector_cache_ts < _CONNECTOR_CACHE_TTL_SECONDS
-        ):
-            return _connector_cache
-        return await load_connectors_from_db()
+    async def get_all_enabled(cls, user_id: str | None = None) -> list[BaseConnector]:
+        if not _connector_cache or time.time() - _connector_cache_ts >= _CONNECTOR_CACHE_TTL_SECONDS:
+            await load_connectors_from_db()
+            
+        if user_id:
+            return [c for c in _connector_cache if getattr(c, "owner_id", None) == user_id]
+        return _connector_cache
 
     @classmethod
-    async def get_all_connectors(cls) -> list[BaseConnector]:
-        return await cls.get_all_enabled()
+    async def get_all_connectors(cls, user_id: str | None = None) -> list[BaseConnector]:
+        return await cls.get_all_enabled(user_id=user_id)
 
     @classmethod
     async def get(cls, source_id: str) -> BaseConnector | None:

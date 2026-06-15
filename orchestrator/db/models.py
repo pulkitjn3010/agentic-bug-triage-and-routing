@@ -25,21 +25,18 @@ class UserRole(Base):
 class SourceRegistry(Base):
     __tablename__ = "source_registry"
 
-    source_id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    system_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    base_url: Mapped[str] = mapped_column(Text, nullable=False)
-    port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    auth_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="bearer_token"
-    )
-    auth_secret_ref: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    project_key: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    ticket_prefix: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
+    source_id:      Mapped[str]           = mapped_column(String(100), primary_key=True)
+    display_name:   Mapped[str]           = mapped_column(String(200), nullable=False)
+    system_type:    Mapped[str]           = mapped_column(String(50), nullable=False)
+    base_url:       Mapped[str]           = mapped_column(Text, nullable=False)
+    port:           Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    auth_type:      Mapped[str]           = mapped_column(String(50), nullable=False, default="bearer_token")
+    auth_secret_ref:Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    project_key:    Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ticket_prefix:  Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    owner_id:       Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    enabled:        Mapped[bool]          = mapped_column(Boolean, default=True)
+    created_at:     Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class PipelineContext(Base):
@@ -59,19 +56,53 @@ class PipelineContext(Base):
 class AuditLog(Base):
     __tablename__ = "audit_log"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    case_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    bug_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    source_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    engineer_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    step: Mapped[str] = mapped_column(String(100), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="done")
-    summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    systems_queried: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
+    id:              Mapped[int]           = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id:         Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    bug_id:          Mapped[str]           = mapped_column(String(100), nullable=False)
+    source_id:       Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    engineer_id:     Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    step:            Mapped[str]           = mapped_column(String(100), nullable=False)
+    status:          Mapped[str]           = mapped_column(String(50), default="done")
+    summary:         Mapped[Optional[dict]]= mapped_column(JSONB, nullable=True)
+    systems_queried: Mapped[Optional[list]]= mapped_column(JSONB, nullable=True)
+    duration_ms:     Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    display_id:      Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at:      Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CMDBTeamRegistry(Base):
+    __tablename__ = "cmdb_team_registry"
+
+    id:                 Mapped[int]           = mapped_column(Integer, primary_key=True, autoincrement=True)
+    component_name:     Mapped[str]           = mapped_column(String(200), nullable=False, unique=True)
+    team_name:          Mapped[str]           = mapped_column(String(200), nullable=False)
+    source_id:          Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    escalation_contact: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+
+class SLAConfig(Base):
+    __tablename__ = "sla_config"
+
+    tier_name:            Mapped[str] = mapped_column(String(100), primary_key=True)
+    p0_resolution_hours:  Mapped[int] = mapped_column(Integer, default=96)
+    p1_resolution_hours:  Mapped[int] = mapped_column(Integer, default=168)
+    p2_resolution_hours:  Mapped[int] = mapped_column(Integer, default=336)
+    p3_resolution_hours:  Mapped[int] = mapped_column(Integer, default=720)
+    at_risk_threshold_pct:Mapped[int] = mapped_column(Integer, default=20)
+
+
+class KBArticle(Base):
+    __tablename__ = "kb_articles"
+
+    id:            Mapped[int]           = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id:    Mapped[str]           = mapped_column(String(100), unique=True, nullable=False)
+    title:         Mapped[str]           = mapped_column(String(500), nullable=False)
+    content:       Mapped[str]           = mapped_column(Text, nullable=False)
+    url:           Mapped[str]           = mapped_column(Text, nullable=False)
+    space_key:     Mapped[str]           = mapped_column(String(50), nullable=False)
+    component:     Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    tags:          Mapped[Optional[dict]]= mapped_column(JSONB, nullable=True)
+    last_modified: Mapped[str]           = mapped_column(String(50), nullable=False)
 
 
 class SystemGroupRegistry(Base):
@@ -82,12 +113,9 @@ class SystemGroupRegistry(Base):
     priority: Mapped[str] = mapped_column(String(10), nullable=True)
     title: Mapped[str] = mapped_column(String(500), nullable=True)
     primary_source_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow
-    )
+    owner_id:          Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at:        Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at:        Mapped[datetime]      = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class BugGroupMapping(Base):

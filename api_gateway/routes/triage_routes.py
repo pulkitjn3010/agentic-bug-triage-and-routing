@@ -55,7 +55,7 @@ async def start_triage(
 
 @router.get("/triage/{case_id}/result")
 async def get_triage_result(case_id: str, user: User = Depends(get_current_user)):
-    return await triage_service.get_triage_result(case_id)
+    return await triage_service.get_triage_result(case_id, user.user_id)
 
 
 @router.websocket("/triage/{case_id}/stream")

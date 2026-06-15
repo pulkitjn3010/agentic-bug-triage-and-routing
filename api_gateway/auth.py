@@ -24,6 +24,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 async def authenticate_user(email: str, password: str) -> Optional[User]:
+    email = email.strip()
     from orchestrator.db.session import AsyncSessionLocal
     from orchestrator.db.repositories.user_roles import get_user_by_email
 

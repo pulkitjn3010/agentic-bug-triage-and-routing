@@ -174,6 +174,30 @@ DEMO_USERS = [
         "display_name": "Disha Jain",
     },
     {
+        "email": "anuj@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Anuj Modani",
+    },
+    {
+        "email": "shivansh@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Shivansh Gaur",
+    },
+    {
+        "email": "pulkit@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Pulkit Jain",
+    },
+    {
+        "email": "om@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Om",
+    },
+    {
         "email": "admin@hpe.com",
         "password": "admin123",
         "role": "admin",

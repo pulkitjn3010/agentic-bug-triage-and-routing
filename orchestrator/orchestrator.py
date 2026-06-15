@@ -309,7 +309,7 @@ class TaskOrchestrator:
             except Exception:
                 pass
 
-            group_id = await self._persist_related_group(context)
+            group_id = await self._persist_related_group(context, engineer_id=engineer_id)
             if group_id:
                 context["group_id"] = group_id
 
@@ -672,7 +672,7 @@ class TaskOrchestrator:
     def _context_keys(self, context: dict) -> list[str]:
         return sorted(k for k in context.keys() if k != "errors")
 
-    async def _persist_related_group(self, context: dict) -> str | None:
+    async def _persist_related_group(self, context: dict, engineer_id: str | None = None) -> str | None:
         primary = context.get("primary_ticket") or {}
         related = context.get("related_tickets") or []
         if not primary or not related:
@@ -681,7 +681,8 @@ class TaskOrchestrator:
             from .db.repositories.group_registry import persist_related_issue_group
 
             async with AsyncSessionLocal() as db:
-                group_id = await persist_related_issue_group(db, primary, related)
+                group_id = await persist_related_issue_group(
+                    db, primary, related, owner_id=engineer_id)
             if group_id:
                 log.info(
                     "Related issue group persisted",

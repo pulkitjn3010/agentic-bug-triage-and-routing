@@ -23,46 +23,10 @@ SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-
-async def background_full_fetch(connector_list: list) -> None:
-    for connector in connector_list:
-        if connector.system_type not in _BUG_SOURCE_TYPES:
-            continue
-        try:
-            existing = await get_cached_buglist(connector.source_id, "open", "")
-            if existing and len(existing) > 50:
-                continue
-
-            all_tickets = await asyncio.wait_for(
-                connector.search_open_bugs(
-                    status="open",
-                    severity="",
-                    max_results=120,
-                ),
-                timeout=20.0,
-            )
-
-            if all_tickets:
-                data = [
-                    _normalize_list_bug(ticket, connector) for ticket in all_tickets
-                ]
-                await cache_buglist(
-                    connector.source_id, "open", "", data, ttl=REDIS_TTL_BUGLIST_SECONDS
-                )
-                print(
-                    f"[BackgroundFetch] {connector.source_id}: "
-                    f"{len(data)} bugs cached",
-                    flush=True,
-                )
-        except Exception as e:
-            print(
-                f"[BackgroundFetch] {connector.source_id} "
-                f"failed: {type(e).__name__}: {str(e)[:80]}",
-                flush=True,
-            )
-
-
-async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> dict:
+async def assemble_grouped_bug_list(
+        raw_bugs: list[dict],
+        db: AsyncSession,
+        user_id: str | None = None) -> dict:
     """
     Transform a flat bug page into a tree of groups + standalones.
     All DB lookups are single IN-queries — no N+1 queries.
@@ -86,11 +50,8 @@ async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> d
     group_info: dict[str, dict] = {}  # group_id → metadata
     group_ids = set(group_map.values())
     if group_ids:
-        result = await db.execute(
-            select(SystemGroupRegistry).where(
-                SystemGroupRegistry.group_id.in_(list(group_ids))
-            )
-        )
+        query = select(SystemGroupRegistry).where(SystemGroupRegistry.group_id.in_(list(group_ids)))
+        result = await db.execute(query)
         for grp in result.scalars().all():
             group_info[grp.group_id] = {
                 "priority": grp.priority or "Unknown",
@@ -117,22 +78,25 @@ async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> d
     # Step 5: batch triage-info lookup
     triage_map: dict[str, dict] = {}
     if expanded_ticket_ids:
-        result = await db.execute(
+        query = (
             select(AuditLog)
             .where(
                 AuditLog.bug_id.in_(list(expanded_ticket_ids)),
                 AuditLog.step == "pipeline_complete",
             )
-            .order_by(AuditLog.bug_id, desc(AuditLog.created_at))
         )
+        if user_id:
+            query = query.where(AuditLog.engineer_id == user_id)
+        
+        result = await db.execute(query.order_by(AuditLog.bug_id, desc(AuditLog.created_at)))
         seen: set[str] = set()
         for entry in result.scalars().all():
             if entry.bug_id not in seen:
                 seen.add(entry.bug_id)
                 triage_map[entry.bug_id] = {
-                    "id": entry.id,
-                    "case_id": entry.case_id or "",
-                    "severity": (
+                    "id": entry.display_id or entry.id,
+                    "case_id":   entry.case_id or "",
+                    "severity":  (
                         (entry.summary or {}).get("severity")
                         or (entry.summary or {}).get("unified_severity", "")
                     ),
@@ -168,12 +132,14 @@ async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> d
             "is_triaged": member.raw_ticket_id in triage_map,
         }
 
-    # Step 6: split grouped vs. ungrouped
-    ungrouped_bugs = [b for b in raw_bugs if b.get("ticket_id", "") not in group_map]
-
-    # Step 7: build explicit group root + child rows
+    # Step 6 & 7: split grouped vs. ungrouped and build rows
     _PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
     group_rows = []
+    
+    # We only show the group if the root bug has been triaged by the current user
+    # Otherwise, we push the bugs back into ungrouped.
+    visible_groups = set()
+    
     for gid, members in group_members.items():
         info = group_info.get(gid, {})
         member_rows = [member_to_bug(member) for member in members]
@@ -183,29 +149,41 @@ async def assemble_grouped_bug_list(raw_bugs: list[dict], db: AsyncSession) -> d
         )
         if not root:
             continue
+            
+        # CONDITIONAL GROUPING: Only show the group UI if the current user triaged the root bug
+        # (This prevents bugs from "popping to the top" automatically before the user triages them)
+        if not root.get("is_triaged"):
+            continue
+            
+        visible_groups.add(gid)
         child_rows = [
             row for row in member_rows if row.get("ticket_id") != root.get("ticket_id")
         ]
-        group_rows.append(
-            {
-                "group_id": gid,
-                "type": "group",
-                "priority": (info.get("priority") or root.get("severity") or "Unknown"),
-                "status": info.get("status", "active"),
-                "title": info.get("title") or root.get("title", ""),
-                "created_at": info.get("created_at", ""),
-                "child_count": len(child_rows),
-                "root": root,
-                "children": child_rows,
-                "triage_info": root.get("triage_info"),
-            }
-        )
-    group_rows.sort(
-        key=lambda g: (
-            _PRIO.get(g["priority"], 4),
-            g["created_at"],
-        )
-    )
+        group_rows.append({
+            "group_id":   gid,
+            "type":       "group",
+            "priority":   (
+                info.get("priority")
+                or root.get("severity")
+                or "Unknown"),
+            "status":     info.get("status", "active"),
+            "title":      info.get("title") or root.get("title", ""),
+            "created_at": info.get("created_at", ""),
+            "child_count": len(child_rows),
+            "root":       root,
+            "children":   child_rows,
+            "triage_info": root.get("triage_info"),
+        })
+
+    # Ungrouped bugs are those NOT in any VISIBLE group
+    ungrouped_bugs = [
+        b for b in raw_bugs
+        if group_map.get(b.get("ticket_id", "")) not in visible_groups
+    ]
+    group_rows.sort(key=lambda g: (
+        _PRIO.get(g["priority"], 4),
+        g["created_at"],
+    ))
 
     # Step 7: build standalone rows
     standalone_rows = []
@@ -261,9 +239,12 @@ def _normalize_list_bug(ticket, connector) -> dict:
 
 
 async def _fetch_buglist_for_connector(
-    connector, status: str, severity: str, max_results: int
-) -> dict:
-    cached = await get_cached_buglist(connector.source_id, status, severity)
+        connector,
+        status: str,
+        severity: str,
+        max_results: int) -> dict:
+    cached = await get_cached_buglist(
+        connector.cache_key, status, severity)
     if cached is not None:
         return {
             "source_id": connector.source_id,
@@ -283,8 +264,8 @@ async def _fetch_buglist_for_connector(
         )
         bugs = [_normalize_list_bug(ticket, connector) for ticket in (tickets or [])]
         await cache_buglist(
-            connector.source_id, status, severity, bugs, ttl=REDIS_TTL_BUGLIST_SECONDS
-        )
+            connector.cache_key, status, severity, bugs,
+            ttl=REDIS_TTL_BUGLIST_SECONDS)
         return {
             "source_id": connector.source_id,
             "bugs": bugs,
@@ -316,9 +297,13 @@ async def get_bugs(
     status: str,
     sort_field: str,
     sort_order: str,
+    user_id: str | None = None,
 ) -> dict:
-    all_connectors = await ConnectorRegistry.get_all_enabled()
-    connectors = [c for c in all_connectors if c.system_type in _BUG_SOURCE_TYPES]
+    all_connectors = await ConnectorRegistry.get_all_enabled(user_id=user_id)
+    connectors = [
+        c for c in all_connectors
+        if c.system_type in _BUG_SOURCE_TYPES
+    ]
     if source:
         connectors = [
             c for c in connectors if c.source_id == source or c.system_type == source
@@ -453,7 +438,8 @@ async def get_bugs(
     assembled: dict = {"ungrouped": [], "groups": []}
     try:
         async with AsyncSessionLocal() as db:
-            assembled = await assemble_grouped_bug_list(raw_bugs=page_bugs, db=db)
+            assembled = await assemble_grouped_bug_list(
+                raw_bugs=page_bugs, db=db, user_id=user_id)
     except Exception as e:
         print(f"[BugList] assemble_grouped_bug_list failed: {e}", flush=True)
         for bug in page_bugs:
@@ -496,10 +482,10 @@ async def get_bugs(
     return response
 
 
-async def get_bug_status(bug_id: str) -> dict:
+async def get_bug_status(bug_id: str, user_id: str | None = None) -> dict:
     # Step 1: Fetch last audit record
     async with AsyncSessionLocal() as db:
-        last_triage = await get_last_triage_for_bug(db, bug_id)
+        last_triage = await get_last_triage_for_bug(db, bug_id, engineer_id=user_id)
 
     if not last_triage:
         return {

@@ -20,6 +20,7 @@ class SourceRow:
     auth_type: str = "bearer_token"
     auth_secret_ref: str = ""
     port: int | None = None
+    owner_id: str | None = None
 
 
 class FakeConnector(BaseConnector):

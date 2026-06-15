@@ -24,7 +24,7 @@ async def start_triage(
     log.info("Triage request received", ticket_id=bug_id, source_id=source_id)
 
     async with AsyncSessionLocal() as db:
-        sources = await get_enabled_sources(db)
+        sources = await get_enabled_sources(db, user_id=user_id)
 
     if source_id:
         # Validate that provided source_id exists
@@ -53,6 +53,40 @@ async def start_triage(
         raise HTTPException(status_code=400, detail="No source system configured")
 
     log.info("Starting triage", ticket_id=bug_id, source_id=source_id, user=user_id)
+
+    # Short-circuit logic: Check if ANY engineer has triaged this recently and it's still in Redis cache.
+    if not force_refresh:
+        from sqlalchemy import select, desc
+        from orchestrator.db.models import AuditLog
+        from orchestrator.db.repositories.audit_log import insert_audit_entry
+        
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AuditLog)
+                .where(AuditLog.bug_id == bug_id, AuditLog.step == "pipeline_complete")
+                .order_by(desc(AuditLog.created_at))
+                .limit(1)
+            )
+            last_global_triage = result.scalar_one_or_none()
+            
+            if last_global_triage and last_global_triage.case_id:
+                # Check if it's still warm in the Redis cache
+                cached = await get_cached_case_result(last_global_triage.case_id)
+                if cached:
+                    # Cache hit! Create a new AuditLog row for THIS user so they get it in their independent history
+                    await insert_audit_entry(db, {
+                        "case_id": last_global_triage.case_id,
+                        "bug_id": bug_id,
+                        "source_id": source_id,
+                        "engineer_id": user_id,
+                        "step": "pipeline_complete",
+                        "status": "done",
+                        "summary": last_global_triage.summary,
+                        "systems_queried": last_global_triage.systems_queried,
+                        "duration_ms": 1100  # Fast simulated duration
+                    })
+                    log.info("Triage cache hit", bug_id=bug_id, user_id=user_id, case_id=last_global_triage.case_id)
+                    return {"case_id": last_global_triage.case_id, "bug_id": bug_id, "source_id": source_id, "status": "cached"}
 
     case_id = str(uuid4())
 
@@ -95,21 +129,46 @@ async def start_triage(
     }
 
 
-async def get_triage_result(case_id: str) -> dict:
-    # First try Redis cache (fast path)
+async def get_triage_result(case_id: str, user_id: str) -> dict:
+    # Try Redis cache (fast path)
     cached = await get_cached_case_result(case_id)
     if cached:
+        # Override the global ID with the user's specific display_id
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
+            from orchestrator.db.models import AuditLog
+            result = await db.execute(
+                select(AuditLog.display_id, AuditLog.id)
+                .where(AuditLog.case_id == case_id, AuditLog.engineer_id == user_id)
+                .limit(1)
+            )
+            row = result.first()
+            if row:
+                cached["id"] = row.display_id or row.id
         return cached
 
     # Fallback: reconstruct from audit_log when cache has expired
     try:
         async with AsyncSessionLocal() as db:
-            entry = await get_last_triage_by_case_id(db, case_id)
+            from sqlalchemy import select
+            from orchestrator.db.models import AuditLog
+            # Get the user's specific entry
+            result = await db.execute(
+                select(AuditLog)
+                .where(AuditLog.case_id == case_id, AuditLog.engineer_id == user_id)
+                .limit(1)
+            )
+            entry = result.scalar_one_or_none()
+            
+            # If not found for this user, fallback to any entry (e.g. shared link)
+            if not entry:
+                entry = await get_last_triage_by_case_id(db, case_id)
+                
         if entry:
             summary = entry.summary or {}
             return {
                 "case_id": case_id,
-                "id": entry.id,
+                "id": entry.display_id or entry.id,
                 "bug_id": entry.bug_id,
                 "source_id": entry.source_id,
                 "from_cache": False,
