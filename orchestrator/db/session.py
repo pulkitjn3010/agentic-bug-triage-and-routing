@@ -54,3 +54,11 @@ async def _ensure_bug_group_mapping_columns(conn) -> None:
         ALTER TABLE audit_log
         ADD COLUMN IF NOT EXISTS display_id INTEGER
     """))
+    await conn.execute(text("""
+        ALTER TABLE source_registry
+        ADD COLUMN IF NOT EXISTS owner_id VARCHAR(200)
+    """))
+    await conn.execute(text("""
+        ALTER TABLE system_group_registry
+        ADD COLUMN IF NOT EXISTS owner_id VARCHAR(200)
+    """))

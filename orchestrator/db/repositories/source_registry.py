@@ -14,9 +14,10 @@ async def get_all_sources(db: AsyncSession, user_id: str | None = None) -> list[
 
     # Get user overrides
     user_result = await db.execute(select(SourceRegistry).where(SourceRegistry.owner_id == user_id))
-    user_sources = {s.source_id.replace(f"{user_id}-", "", 1): s for s in user_result.scalars().all() if s.source_id.startswith(f"{user_id}-")}
+    user_rows = list(user_result.scalars().all())
+    user_sources = {s.source_id.replace(f"{user_id}-", "", 1): s for s in user_rows if s.source_id.startswith(f"{user_id}-")}
     # Also include custom ones that user created which don't map to a global template
-    custom_sources = [s for s in user_result.scalars().all() if not s.source_id.startswith(f"{user_id}-") or s.source_id.replace(f"{user_id}-", "", 1) not in global_sources]
+    custom_sources = [s for s in user_rows if not s.source_id.startswith(f"{user_id}-") or s.source_id.replace(f"{user_id}-", "", 1) not in global_sources]
 
     merged_sources = []
     for g_id, g_source in global_sources.items():

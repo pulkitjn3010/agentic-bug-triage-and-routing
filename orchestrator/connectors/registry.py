@@ -131,7 +131,11 @@ class ConnectorRegistry:
             await load_connectors_from_db()
             
         if user_id:
-            return [c for c in _connector_cache if getattr(c, "owner_id", None) == user_id]
+            return [
+                c
+                for c in _connector_cache
+                if getattr(c, "owner_id", None) in (user_id, None)
+            ]
         return _connector_cache
 
     @classmethod
