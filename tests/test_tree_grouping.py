@@ -69,7 +69,7 @@ async def test_related_tickets_are_persisted_as_group_children(monkeypatch):
     async def next_group_id(_db):
         return "BT-001"
 
-    async def create_group(_db, group_id, title, priority, primary_source_id):
+    async def create_group(_db, group_id, title, priority, primary_source_id, **kwargs):
         return SystemGroupRegistry(
             group_id=group_id,
             title=title,
@@ -232,7 +232,15 @@ async def test_group_children_return_even_if_not_in_live_page():
                     ),
                 ]
             ),
-            FakeExecuteResult(scalars=[]),
+            FakeExecuteResult(
+                scalars=[
+                    AuditLog(
+                        bug_id="STO-1",
+                        step="pipeline_complete",
+                        summary={"severity": "P1", "confidence": 0.9},
+                    )
+                ]
+            ),
         ]
     )
 
@@ -273,7 +281,15 @@ async def test_old_fallback_groups_without_root_still_render_shape():
                     ),
                 ]
             ),
-            FakeExecuteResult(scalars=[]),
+            FakeExecuteResult(
+                scalars=[
+                    AuditLog(
+                        bug_id="STO-1",
+                        step="pipeline_complete",
+                        summary={"severity": "P1", "confidence": 0.9},
+                    )
+                ]
+            ),
         ]
     )
 

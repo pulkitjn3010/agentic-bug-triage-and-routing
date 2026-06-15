@@ -81,8 +81,6 @@ export default function LoginPage() {
         <div className="login-demo">
           <p>Demo credentials</p>
           <span>disha@hpe.com / password123 (engineer)</span>
-          <span>admin@hpe.com / admin123 (admin)</span>
-          <span>customer@acme.com / customer123 (customer)</span>
         </div>
       </div>
     </div>

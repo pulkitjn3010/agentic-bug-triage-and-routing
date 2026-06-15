@@ -482,10 +482,10 @@ async def get_bugs(
     return response
 
 
-async def get_bug_status(bug_id: str) -> dict:
+async def get_bug_status(bug_id: str, user_id: str | None = None) -> dict:
     # Step 1: Fetch last audit record
     async with AsyncSessionLocal() as db:
-        last_triage = await get_last_triage_for_bug(db, bug_id)
+        last_triage = await get_last_triage_for_bug(db, bug_id, engineer_id=user_id)
 
     if not last_triage:
         return {

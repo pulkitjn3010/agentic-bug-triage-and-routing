@@ -127,7 +127,7 @@ async def update_connection(
             source = await get_source_by_id(db, source_id)
 
     ConnectorRegistry.invalidate_cache()
-    return {"connection": _format_source(source), "status": "updated"}
+    return {"connection": connection_service._format_source(source), "status": "updated"}
 
 
 @router.delete("/settings/connections/{source_id}")

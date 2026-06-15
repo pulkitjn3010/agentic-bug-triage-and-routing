@@ -274,8 +274,13 @@ async def get_bugs(
 
 @router.post("/bugs/warm")
 async def warm_bug_cache(user: User = Depends(get_current_user)):
-    connectors = await ConnectorRegistry.get_all_enabled()
-    asyncio.create_task(bug_service.background_full_fetch(connectors))
+    connectors = await ConnectorRegistry.get_all_enabled(user_id=user.user_id)
+    grouped = {}
+    for c in connectors:
+        if c.is_bug_source:
+            grouped.setdefault(c.cache_key, []).append(c)
+    for c_list in grouped.values():
+        asyncio.create_task(_background_fetch_connector(c_list))
     return {
         "status": "warming",
         "connectors": len(connectors),
@@ -301,7 +306,7 @@ async def get_bug_status(
     bug_id: str,
     user: User = Depends(get_current_user),
 ):
-    return await bug_service.get_bug_status(bug_id)
+    return await bug_service.get_bug_status(bug_id, user_id=user.user_id)
 
 
 @router.get("/metrics")

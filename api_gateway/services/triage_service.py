@@ -24,7 +24,7 @@ async def start_triage(
     log.info("Triage request received", ticket_id=bug_id, source_id=source_id)
 
     async with AsyncSessionLocal() as db:
-        sources = await get_enabled_sources(db)
+        sources = await get_enabled_sources(db, user_id=user_id)
 
     if source_id:
         # Validate that provided source_id exists

@@ -18,20 +18,20 @@ async def insert_audit_entry(db: AsyncSession, data: dict) -> AuditLog:
     return entry
 
 
-async def get_last_triage_for_bug(db: AsyncSession, bug_id: str) -> AuditLog | None:
-    result = await db.execute(
-        select(AuditLog)
-        .where(AuditLog.bug_id == bug_id, AuditLog.step == "pipeline_complete")
-        .order_by(desc(AuditLog.created_at))
-        .limit(1)
-    )
+async def get_last_triage_for_bug(db: AsyncSession, bug_id: str, engineer_id: str | None = None) -> AuditLog | None:
+    query = select(AuditLog).where(AuditLog.bug_id == bug_id, AuditLog.step == "pipeline_complete")
+    if engineer_id:
+        query = query.where(AuditLog.engineer_id == engineer_id)
+    query = query.order_by(desc(AuditLog.created_at)).limit(1)
+    result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
-async def get_metrics_summary(db: AsyncSession) -> dict:
-    total = await db.execute(
-        select(func.count(AuditLog.id)).where(AuditLog.step == "pipeline_complete")
-    )
+async def get_metrics_summary(db: AsyncSession, engineer_id: str | None = None) -> dict:
+    query = select(func.count(AuditLog.id)).where(AuditLog.step == "pipeline_complete")
+    if engineer_id:
+        query = query.where(AuditLog.engineer_id == engineer_id)
+    total = await db.execute(query)
     total_count = total.scalar() or 0
 
     return {

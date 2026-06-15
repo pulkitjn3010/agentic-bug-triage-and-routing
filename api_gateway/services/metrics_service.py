@@ -16,11 +16,12 @@ _BUG_SOURCE_TYPES = {"github", "jira", "jira_apache", "bugzilla"}
 
 async def get_metrics(user_id: str | None = None) -> dict:
     async with AsyncSessionLocal() as db:
-        summary = await get_metrics_summary(db)
-        recent = await list_recent_pipeline_completions(db, limit=10)
-        failed_result = await db.execute(
-            select(AuditLog.id).where(AuditLog.status == "failed")
-        )
+        summary = await get_metrics_summary(db, engineer_id=user_id)
+        recent = await list_recent_pipeline_completions(db, limit=10, engineer_id=user_id)
+        failed_query = select(AuditLog.id).where(AuditLog.status == "failed")
+        if user_id:
+            failed_query = failed_query.where(AuditLog.engineer_id == user_id)
+        failed_result = await db.execute(failed_query)
         failed_triages = len(failed_result.scalars().all())
 
     all_connectors = await ConnectorRegistry.get_all_enabled(user_id=user_id)
@@ -34,6 +35,7 @@ async def get_metrics(user_id: str | None = None) -> dict:
     total_confidence = 0.0
     confidence_count = 0
 
+    enabled_source_ids = {c.source_id for c in all_connectors}
     for entry in recent:
         s = (entry.summary or {}).get("unified_severity") or (entry.summary or {}).get(
             "severity", "Unknown"
@@ -42,7 +44,8 @@ async def get_metrics(user_id: str | None = None) -> dict:
             s = "Unknown"
         by_severity[s] += 1
         src = entry.source_id or "unknown"
-        source_counts[src] = source_counts.get(src, 0) + 1
+        if src in enabled_source_ids:
+            source_counts[src] = source_counts.get(src, 0) + 1
         conf = (entry.summary or {}).get("confidence", 0)
         if conf:
             total_confidence += conf
@@ -58,7 +61,7 @@ async def get_metrics(user_id: str | None = None) -> dict:
     live_total = 0
     try:
         for connector in bug_connectors:
-            cached = await get_cached_buglist(connector.source_id, "open", "")
+            cached = await get_cached_buglist(connector.cache_key, "open", "")
             if cached:
                 for bug in cached:
                     live_total += 1
