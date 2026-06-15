@@ -15,7 +15,7 @@ const SRC_CLS = { github: 'sb-gh', jira: 'sb-jira', jira_apache: 'sb-jira', jira
 const SRC_LBL = { github: 'GH', jira: 'JIRA', jira_apache: 'JIRA', jira_cloud: 'JIRA', bugzilla: 'BZ', confluence: 'CF', customer_portal: 'CP', support_kb: 'KB' }
 const SEV_CLS = { P0: 'sev-p0', P1: 'sev-p1', P2: 'sev-p2', P3: 'sev-p3' }
 const SEVERITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'Unknown']
-const ALL_SOURCES = ['All Sources', 'github', 'jira_apache', 'bugzilla']
+const ALL_SOURCES = ['All Sources', 'github', 'jira', 'bugzilla']
 const BUGLIST_CACHE_MAX_AGE_MS = 120000
 
 function SevBadge({ sev }) {

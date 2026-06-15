@@ -329,7 +329,7 @@ async def get_bugs(
     connectors = [c for c in all_connectors if c.system_type in _BUG_SOURCE_TYPES]
     if source:
         connectors = [
-            c for c in connectors if c.source_id == source or c.system_type == source
+            c for c in connectors if c.source_id == source or c.system_type == source or (source == "jira" and c.system_type.startswith("jira"))
         ]
 
     if not connectors:
