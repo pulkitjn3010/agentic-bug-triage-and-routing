@@ -30,8 +30,8 @@ async def start_triage(
         # Validate that provided source_id exists (both clean templates and user-prefixed IDs)
             valid_ids = {s.source_id for s in sources}
             valid_ids.update({f"{user_id}-{s.source_id}" for s in sources})
-        if source_id not in valid_ids:
-            source_id = ""  # fall through to detection
+            if source_id not in valid_ids:
+                source_id = ""  # fall through to detection
 
     if not source_id:
         # Server-side source detection: prefix match first
