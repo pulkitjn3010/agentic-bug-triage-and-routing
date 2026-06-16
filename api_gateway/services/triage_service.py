@@ -26,9 +26,10 @@ async def start_triage(
     async with AsyncSessionLocal() as db:
         sources = await get_enabled_sources(db, user_id=user_id)
 
-    if source_id:
-        # Validate that provided source_id exists
-        valid_ids = {s.source_id for s in sources}
+        if source_id:
+        # Validate that provided source_id exists (both clean templates and user-prefixed IDs)
+            valid_ids = {s.source_id for s in sources}
+            valid_ids.update({f"{user_id}-{s.source_id}" for s in sources})
         if source_id not in valid_ids:
             source_id = ""  # fall through to detection
 
