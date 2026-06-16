@@ -110,3 +110,28 @@ class BaseConnector(ABC):
           raw_id, source, relationship, url (optional)
         Returns empty list if not supported.
         """
+
+    def reference_variants(self, ticket_id: str, url: str = "", raw_key: str = "") -> list[str]:
+        variants = {v for v in (ticket_id, raw_key, url) if v}
+        return sorted(variants)
+
+    def extract_references_from_text(self, text: str) -> list[dict]:
+        return []
+
+    def accepts_search_query(self, query: str) -> bool:
+        query_l = (query or "").lower()
+        if query_l.startswith(("http://", "https://")):
+            base = (self.base_url or "").lower()
+            return bool(base and base in query_l)
+        return True
+
+    def normalize_reference_id(self, ticket_id: str) -> str:
+        return str(ticket_id or "").strip()
+
+    def relationship_hint_from_text(self, text: str, pos: int) -> str:
+        window = (text or "")[max(0, pos - 80): pos + 80].lower()
+        if any(word in window for word in ("blocks", "blocked by", "depends on", "dependency", "caused by", "fixed by", "requires")):
+            return "dependency"
+        if "duplicate" in window:
+            return "duplicate"
+        return "direct_reference"

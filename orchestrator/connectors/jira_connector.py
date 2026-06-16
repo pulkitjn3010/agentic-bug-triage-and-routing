@@ -1,5 +1,6 @@
-import httpx
 import asyncio
+import re
+import httpx
 from .base_connector import BaseConnector
 from ..models.ticket import TicketData, ChangeEvent
 
@@ -29,6 +30,40 @@ JIRA_PRIORITY_MAP = {
 
 
 class JiraConnector(BaseConnector):
+    def reference_variants(self, ticket_id: str, url: str = "", raw_key: str = "") -> list[str]:
+        ticket_id = str(ticket_id or raw_key or "").strip().upper()
+        variants = {v for v in (ticket_id, raw_key, url) if v}
+        if ticket_id and re.match(r"^[A-Z][A-Z0-9]+-\d+$", ticket_id):
+            variants.add(ticket_id)
+            if self.base_url:
+                variants.add(f"{self.base_url}/browse/{ticket_id}")
+        return sorted(v for v in variants if v)
+
+    def extract_references_from_text(self, text: str) -> list[dict]:
+        refs = []
+        for match in re.finditer(r"https?://[^\s<>\"']+/(?:browse|issues)/([A-Z][A-Z0-9]+-\d+)", text or "", re.IGNORECASE):
+            refs.append({"raw_id": match.group(1).upper(), "source": "JIRA", "url": match.group(0), "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        for match in re.finditer(r"\b([A-Z][A-Z0-9]+-\d+)\b", text or ""):
+            refs.append({"raw_id": match.group(1).upper(), "source": "JIRA", "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        return self._dedupe_refs(refs)
+
+    def accepts_search_query(self, query: str) -> bool:
+        q = (query or "").lower()
+        if "github.com" in q or "bugzilla" in q or "show_bug.cgi" in q:
+            return False
+        if q.startswith(("http://", "https://")):
+            return "jira" in q or "/browse/" in q or "/issues/" in q or (self.base_url and self.base_url.lower() in q)
+        return True
+
+    def _dedupe_refs(self, refs: list[dict]) -> list[dict]:
+        seen, unique = set(), []
+        for ref in refs:
+            key = (ref.get("source", "").lower(), ref.get("raw_id", ""))
+            if ref.get("raw_id") and key not in seen:
+                seen.add(key)
+                unique.append(ref)
+        return unique
+
     def _extract_text_from_adf(self, content) -> str:
         """Recursively extract plain text from Atlassian Document Format (ADF)."""
         if isinstance(content, str):

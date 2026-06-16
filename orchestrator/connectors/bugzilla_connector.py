@@ -1,3 +1,4 @@
+import re
 import httpx
 from .base_connector import BaseConnector
 from ..models.ticket import TicketData, ChangeEvent
@@ -27,6 +28,43 @@ BZ_PRIORITY_MAP = {
 
 
 class BugzillaConnector(BaseConnector):
+    def reference_variants(self, ticket_id: str, url: str = "", raw_key: str = "") -> list[str]:
+        number = str(ticket_id or raw_key or "").strip().replace("BZ-", "")
+        variants = {v for v in (number, raw_key, url) if v}
+        if number:
+            variants.add(f"BZ-{number}")
+            if self.base_url:
+                variants.add(f"{self.base_url}/show_bug.cgi?id={number}")
+        return sorted(v for v in variants if v)
+
+    def extract_references_from_text(self, text: str) -> list[dict]:
+        refs = []
+        for match in re.finditer(r"https?://[^\s<>\"']*bugzilla[^\s<>\"']*[?&]id=(\d+)", text or "", re.IGNORECASE):
+            refs.append({"raw_id": match.group(1), "source": "Bugzilla", "url": match.group(0), "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        for match in re.finditer(r"\bBZ-(\d+)\b", text or "", re.IGNORECASE):
+            refs.append({"raw_id": match.group(1), "source": "Bugzilla", "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        return self._dedupe_refs(refs)
+
+    def accepts_search_query(self, query: str) -> bool:
+        q = (query or "").lower()
+        if "github.com" in q:
+            return False
+        if q.startswith(("http://", "https://")):
+            return "bugzilla" in q or "show_bug.cgi" in q or (self.base_url and self.base_url.lower() in q)
+        return True
+
+    def normalize_reference_id(self, ticket_id: str) -> str:
+        return str(ticket_id or "").strip().replace("BZ-", "")
+
+    def _dedupe_refs(self, refs: list[dict]) -> list[dict]:
+        seen, unique = set(), []
+        for ref in refs:
+            key = ref.get("raw_id", "")
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(ref)
+        return unique
+
     def _headers(self) -> dict:
         h = {"Accept": "application/json"}
         if self.token:

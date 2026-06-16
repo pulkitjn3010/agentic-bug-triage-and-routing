@@ -1,6 +1,7 @@
 import re
 import httpx
 import asyncio
+import math
 from .base_connector import BaseConnector
 from ..models.ticket import TicketData, ChangeEvent
 
@@ -28,6 +29,46 @@ SKIP_LABELS = {
 
 
 class GithubConnector(BaseConnector):
+    def reference_variants(self, ticket_id: str, url: str = "", raw_key: str = "") -> list[str]:
+        number = str(ticket_id or raw_key or "").strip().lstrip("#")
+        variants = {v for v in (number, raw_key, url) if v}
+        if number:
+            variants.update({f"#{number}", f"GH-{number}"})
+            if self.project_key:
+                variants.add(f"{self.project_key}#{number}")
+                variants.add(f"https://github.com/{self.project_key}/issues/{number}")
+        return sorted(v for v in variants if v)
+
+    def extract_references_from_text(self, text: str) -> list[dict]:
+        refs = []
+        for match in re.finditer(r"https?://github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)", text or "", re.IGNORECASE):
+            refs.append({"raw_id": match.group(3), "source": "GitHub", "url": match.group(0), "repo": f"{match.group(1)}/{match.group(2)}", "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        for match in re.finditer(r"\b([\w.-]+/[\w.-]+)#(\d+)\b", text or ""):
+            refs.append({"raw_id": match.group(2), "source": "GitHub", "repo": match.group(1), "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start())})
+        for match in re.finditer(r"\b(?:GH|PR)-(\d+)\b|#(\d+)\b", text or "", re.IGNORECASE):
+            refs.append({"raw_id": match.group(1) or match.group(2), "source": "GitHub", "raw_reference": match.group(0), "pos": match.start(), "relationship": self.relationship_hint_from_text(text, match.start()), "ambiguous_hash": bool(match.group(2))})
+        return self._dedupe_refs(refs)
+
+    def accepts_search_query(self, query: str) -> bool:
+        q = (query or "").lower()
+        if "bugzilla" in q or "show_bug.cgi" in q:
+            return False
+        if q.startswith(("http://", "https://")):
+            return "github.com" in q
+        return True
+
+    def normalize_reference_id(self, ticket_id: str) -> str:
+        return str(ticket_id or "").strip().lstrip("#").replace("GH-", "")
+
+    def _dedupe_refs(self, refs: list[dict]) -> list[dict]:
+        seen, unique = set(), []
+        for ref in refs:
+            key = (ref.get("repo", ""), ref.get("raw_id", ""), ref.get("raw_reference", ""))
+            if ref.get("raw_id") and key not in seen:
+                seen.add(key)
+                unique.append(ref)
+        return unique
+
     def _headers(self) -> dict:
         h = {
             "Accept": "application/vnd.github+json",
@@ -105,14 +146,15 @@ class GithubConnector(BaseConnector):
     async def search(
         self, query: str, max_results: int = 300, page: int = 1
     ) -> list[TicketData]:
-        MAX_PAGES = 20  # 2000 bugs ceiling for GitHub to avoid heavy rate limits
-        per_page = 100
+        requested = max(1, int(max_results or 10))
+        per_page = min(requested, 100)
+        max_pages = max(1, math.ceil(requested / per_page))
 
         async def fetch_page(p: int, client: httpx.AsyncClient):
             if query:
                 url = f"https://api.github.com/search/issues"
                 params = {
-                    "q": f"{query}+repo:{self._repo()}+is:issue+is:open",
+                    "q": f"{query} repo:{self._repo()} is:issue",
                     "per_page": per_page,
                     "page": p,
                 }
@@ -137,21 +179,24 @@ class GithubConnector(BaseConnector):
 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
-                # To be fast but respect GitHub limits, we'll fetch in batches of 5 pages
                 all_raw_items = []
-                for batch_start in range(1, MAX_PAGES + 1, 5):
+                for batch_start in range(page, page + max_pages, 5):
                     tasks = [
                         fetch_page(p, client)
-                        for p in range(batch_start, batch_start + 5)
+                        for p in range(batch_start, min(batch_start + 5, page + max_pages))
                     ]
                     batch_results = await asyncio.gather(*tasks)
 
                     batch_had_full_page = False
                     for page_items in batch_results:
                         all_raw_items.extend(page_items)
+                        if len(all_raw_items) >= requested:
+                            break
                         if len(page_items) == per_page:
                             batch_had_full_page = True
 
+                    if len(all_raw_items) >= requested:
+                        break
                     if not batch_had_full_page:
                         break  # We reached the end
 
@@ -159,7 +204,7 @@ class GithubConnector(BaseConnector):
                     self._normalise(i)
                     for i in all_raw_items
                     if i.get("pull_request") is None
-                ]
+                ][:requested]
         except Exception as e:
             print(f"[GITHUB] Search error: {e}")
             return []
