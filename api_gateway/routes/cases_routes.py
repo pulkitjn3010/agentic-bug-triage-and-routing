@@ -133,6 +133,7 @@ def _normalize_list_bug(ticket, connector) -> dict:
         "system_type": system_type,
         "source_display_name": getattr(
             connector, "display_name", connector.source_id),
+        "project_key": getattr(connector, "project_key", ""),
         "title": data.get("title", ""),
         "severity": data.get("severity") or "Unknown",
         "status": data.get("status") or "open",
@@ -255,6 +256,7 @@ async def get_bugs(
     severity: str = Query(""),
     source: str = Query(""),
     status: str = Query(""),
+    project: str = Query(""),
     sort_field: str = Query("severity"),
     sort_order: str = Query("desc"),
     user: User = Depends(get_current_user),
@@ -266,6 +268,7 @@ async def get_bugs(
         severity=severity,
         source=source,
         status=status,
+        project=project,
         sort_field=sort_field,
         sort_order=sort_order,
         user_id=user.user_id,

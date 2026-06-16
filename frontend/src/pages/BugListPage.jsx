@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getBugs, getBugStatus, refreshBugCache, getMetrics } from '../api/bugs'
 import { startTriage } from '../api/triage'
+import { getConnections } from '../api/settings'
 import { useBugListCache } from '../context/BugListCacheContext'
 
 const toPercent = (score) => {
@@ -14,7 +15,7 @@ const SRC_CLS = { github: 'sb-gh', jira: 'sb-jira', jira_apache: 'sb-jira', jira
 const SRC_LBL = { github: 'GH', jira: 'JIRA', jira_apache: 'JIRA', jira_cloud: 'JIRA', bugzilla: 'BZ', confluence: 'CF', customer_portal: 'CP', support_kb: 'KB' }
 const SEV_CLS = { P0: 'sev-p0', P1: 'sev-p1', P2: 'sev-p2', P3: 'sev-p3' }
 const SEVERITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'Unknown']
-const ALL_SOURCES = ['All Sources', 'github', 'jira_apache', 'bugzilla']
+const ALL_SOURCES = ['All Sources', 'github', 'jira', 'bugzilla']
 const BUGLIST_CACHE_MAX_AGE_MS = 120000
 
 function SevBadge({ sev }) {
@@ -635,6 +636,8 @@ export default function BugListPage() {
   const [severity,      setSeverity]      = useState('')
   const [source,        setSource]        = useState('')
   const [status,        setStatus]        = useState('')
+  const [project,       setProject]       = useState('')
+  const [projects,      setProjects]      = useState([])
   const [activePill,    setActivePill]    = useState('All')
   const [triagingId,    setTriagingId]    = useState(null)
   const [lastSynced,    setLastSynced]    = useState(() => bugListCache.lastSynced ? new Date(bugListCache.lastSynced) : null)
@@ -644,6 +647,22 @@ export default function BugListPage() {
   const [isPartial,     setIsPartial]     = useState(() => bugListCache.isPartial || false)
   const [cacheStatus,   setCacheStatus]   = useState(() => bugListCache.cacheStatus || null)
   const [metrics,       setMetrics]       = useState(null)
+
+  useEffect(() => {
+    getConnections()
+      .then((data) => {
+        const activeConns = data.connections || []
+        const keys = [
+          ...new Set(
+            activeConns
+              .filter((c) => c.enabled && c.project_key)
+              .map((c) => c.project_key)
+          )
+        ].sort()
+        setProjects(keys)
+      })
+      .catch((err) => console.error('Failed to fetch connections for projects dropdown', err))
+  }, [])
 
   // Debounce search
   useEffect(() => {
@@ -664,13 +683,14 @@ export default function BugListPage() {
         severity,
         source,
         status,
+        project,
         activePill,
       },
     })
-  }, [page, search, severity, source, status, activePill, updateBugListCache])
+  }, [page, search, severity, source, status, project, activePill, updateBugListCache])
 
   const fetchBugs = useCallback(async (silent = false) => {
-    const key = JSON.stringify({ page, page_size: 10, severity, source, status, search })
+    const key = JSON.stringify({ page, page_size: 10, severity, source, status, search, project })
     const now = Date.now()
     const cached = bugsCache[key]
     const isExpired = !cached || (now - cached.timestamp) >= 120000
@@ -700,7 +720,7 @@ export default function BugListPage() {
       pollCountRef.current = 0
     }
     try {
-      const data = await getBugs({ page, page_size: 10, severity, source: source || undefined, status, search })
+      const data = await getBugs({ page, page_size: 10, severity, source: source || undefined, status, search, project })
       bugsCache[key] = { data, timestamp: Date.now() }
       const nextGroups = data.groups || []
       const allBugs = data.bugs || [
@@ -729,6 +749,7 @@ export default function BugListPage() {
           severity,
           source,
           status,
+          project,
           activePill,
         },
         sourcesOnline: data.sources_online || 0,
@@ -742,7 +763,7 @@ export default function BugListPage() {
     } finally {
       if (!silent && !cached) setLoading(false)
     }
-  }, [page, severity, source, status, search, activePill, bugs.length, updateBugListCache])
+  }, [page, severity, source, status, search, project, activePill, bugs.length, updateBugListCache])
 
   useEffect(() => {
     const cacheMatches =
@@ -750,7 +771,8 @@ export default function BugListPage() {
       (bugListCache.searchTerm || '') === search &&
       (bugListCache.filters?.severity || '') === severity &&
       (bugListCache.filters?.source || '') === source &&
-      (bugListCache.filters?.status || 'open') === status
+      (bugListCache.filters?.status || 'open') === status &&
+      (bugListCache.filters?.project || '') === project
     const hasCachedRows = cacheMatches && ((bugListCache.bugs || []).length > 0 || (bugListCache.groups || []).length > 0)
     const cacheAge = Date.now() - (bugListCache.lastFetched || 0)
     const cacheIsFresh = hasCachedRows && cacheAge < BUGLIST_CACHE_MAX_AGE_MS
@@ -766,7 +788,7 @@ export default function BugListPage() {
 
     intervalRef.current = setInterval(() => fetchBugs(true), 120000)
     return () => clearInterval(intervalRef.current)
-  }, [fetchBugs, page, search, severity, source, status])
+  }, [fetchBugs, page, search, severity, source, status, project])
 
   // Poll every 1 s on cold start until data arrives (max 3 polls, then stop)
   useEffect(() => {
@@ -890,8 +912,14 @@ export default function BugListPage() {
           />
         </div>
 
-        <select className="form-select filter-select" style={{ width: 'auto' }} onChange={() => setPage(1)}>
-          <option>All Projects</option>
+        <select
+          className="form-select filter-select"
+          style={{ width: 'auto' }}
+          value={project}
+          onChange={(e) => { setProject(e.target.value === 'All Projects' ? '' : e.target.value); setPage(1) }}
+        >
+          <option value="">All Projects</option>
+          {projects.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
 
         <select
@@ -1028,7 +1056,7 @@ export default function BugListPage() {
         </div>
       ) : !hasVisibleRows ? (
         (() => {
-          const hasFilters = !!(search || severity || source || activePill !== 'All')
+          const hasFilters = !!(search || severity || source || project || activePill !== 'All')
           if (hasFilters) {
             return (
               <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)', fontSize: 13 }}>
@@ -1036,7 +1064,7 @@ export default function BugListPage() {
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
-                    setSearchInput(''); setSearch(''); setSeverity(''); setSource(''); setActivePill('All'); setPage(1)
+                    setSearchInput(''); setSearch(''); setSeverity(''); setSource(''); setProject(''); setActivePill('All'); setPage(1)
                   }}
                 >
                   Clear filters

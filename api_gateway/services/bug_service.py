@@ -34,6 +34,10 @@ async def assemble_grouped_bug_list(
     all_ticket_ids: set[str] = {b["ticket_id"] for b in raw_bugs if b.get("ticket_id")}
     live_by_ticket = {b["ticket_id"]: b for b in raw_bugs if b.get("ticket_id")}
 
+    # Get active connector project keys
+    all_connectors = await ConnectorRegistry.get_all_enabled()
+    conn_project_keys = {c.source_id: getattr(c, "project_key", "") for c in all_connectors}
+
     # Step 2: batch group-mapping lookup
     group_map: dict[str, str] = {}  # raw_ticket_id → group_id
     if all_ticket_ids:
@@ -110,6 +114,7 @@ async def assemble_grouped_bug_list(
 
     def member_to_bug(member: BugGroupMapping) -> dict:
         live = live_by_ticket.get(member.raw_ticket_id, {})
+        project_key = live.get("project_key") or conn_project_keys.get(member.source_id) or ""
         return {
             "ticket_id": member.raw_ticket_id,
             "source": (live.get("source") or member.system_type or member.source_id),
@@ -118,6 +123,7 @@ async def assemble_grouped_bug_list(
                 live.get("system_type") or member.system_type or member.source_id
             ),
             "source_display_name": live.get("source_display_name", member.source_id),
+            "project_key": project_key,
             "title": live.get("title") or member.title or "",
             "severity": (live.get("severity") or member.severity or "Unknown"),
             "status": live.get("status") or member.status or "open",
@@ -224,6 +230,7 @@ def _normalize_list_bug(ticket, connector) -> dict:
         "source_id": source_id,
         "system_type": system_type,
         "source_display_name": getattr(connector, "display_name", connector.source_id),
+        "project_key": getattr(connector, "project_key", ""),
         "title": data.get("title", ""),
         "severity": data.get("severity") or "Unknown",
         "status": data.get("status") or "open",
@@ -298,6 +305,7 @@ async def get_bugs(
     sort_field: str,
     sort_order: str,
     user_id: str | None = None,
+    project: str = "",
 ) -> dict:
     all_connectors = await ConnectorRegistry.get_all_enabled(user_id=user_id)
     connectors = [
@@ -306,7 +314,7 @@ async def get_bugs(
     ]
     if source:
         connectors = [
-            c for c in connectors if c.source_id == source or c.system_type == source
+            c for c in connectors if c.source_id == source or c.system_type == source or (source == "jira" and c.system_type.startswith("jira"))
         ]
 
     if not connectors:
@@ -396,6 +404,10 @@ async def get_bugs(
     if status:
         all_bugs = [
             b for b in all_bugs if b.get("status", "").lower() == status.lower()
+        ]
+    if project:
+        all_bugs = [
+            b for b in all_bugs if b.get("project_key", "").lower() == project.lower()
         ]
 
     # Fetch triage timestamps for all candidate bugs BEFORE pagination
