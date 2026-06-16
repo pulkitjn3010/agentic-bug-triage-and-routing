@@ -116,14 +116,7 @@ class EnrichmentAgent(BaseAgent):
         words = [w.strip(".,()[]\"'") for w in ticket_title.split()]
         return " ".join(words[:4])
 
-    GITHUB_REPO_MAP = {
-        "FLINK": "apache/flink",
-        "SPARK": "apache/spark",
-        "KAFKA": "apache/kafka",
-        "HADOOP": "apache/hadoop",
-        "ZOOKEEPER": "apache/zookeeper",
-        "HPEKB": "HewlettPackard/hpe-dev-portal",
-    }
+
 
     async def run(self, context: dict) -> dict:
         primary = context.get("primary_ticket") or {}
@@ -166,49 +159,18 @@ class EnrichmentAgent(BaseAgent):
 
         so_articles = self._iter0_so_results
 
-        # BUG5: run Apache JIRA and GitHub Issues in parallel with
-        # the existing sources for richer enrichment
-        github_repo = self.GITHUB_REPO_MAP.get(target_space, "")
-        apache_task = (
-            self._fetch_apache_jira(initial_query, target_space)
-            if target_space and target_space != "HPEKB"
-            else asyncio.sleep(0, result=[])
-        )
-        github_task = (
-            self._fetch_github_issues(initial_query, github_repo)
-            if github_repo
-            else asyncio.sleep(0, result=[])
-        )
-        apache_results, gh_results = await asyncio.gather(
-            apache_task,
-            github_task,
-            return_exceptions=True,
-        )
-        apache_articles = apache_results if isinstance(apache_results, list) else []
-        gh_articles = gh_results if isinstance(gh_results, list) else []
-        if isinstance(apache_results, Exception):
-            log.warning("Apache JIRA fetch failed", error=str(apache_results))
-        if isinstance(gh_results, Exception):
-            log.warning("GitHub Issues fetch failed", error=str(gh_results))
-
         # Tag every item with its source
         for item in kb_articles:
             item.setdefault("source", "confluence")
         for item in so_articles:
             item.setdefault("source", "stackoverflow")
-        for item in apache_articles:
-            item.setdefault("source", "apache_jira")
-        for item in gh_articles:
-            item.setdefault("source", "github")
 
-        # Merge: confluence first, then SO, then Apache JIRA, then GitHub
-        all_articles = kb_articles + so_articles + apache_articles + gh_articles
+        # Merge: confluence first, then SO
+        all_articles = kb_articles + so_articles
         log.info(
             "Enrichment complete",
             confluence=len(kb_articles),
             stackoverflow=len(so_articles),
-            apache_jira=len(apache_articles),
-            github=len(gh_articles),
             total=len(all_articles),
         )
 
@@ -216,82 +178,7 @@ class EnrichmentAgent(BaseAgent):
         context["enrichment_sources"] = all_articles
         return context
 
-    async def _fetch_apache_jira(self, query: str, project_key: str) -> list[dict]:
-        """Search Apache's public JIRA for related issues (no auth needed)."""
-        url = "https://issues.apache.org/jira/rest/api/2/search"
-        params = {
-            "jql": (
-                f'project = {project_key} AND text ~ "{query}" '
-                f"ORDER BY updated DESC"
-            ),
-            "maxResults": 5,
-            "fields": "summary,status,description,comment,assignee,priority",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                issues = resp.json().get("issues", [])
-                results = []
-                for i in issues:
-                    results.append(
-                        {
-                            "id": i["key"],
-                            "title": i["fields"]["summary"],
-                            "url": f"https://issues.apache.org/jira/browse/{i['key']}",
-                            "status": i["fields"]["status"]["name"],
-                            "source": "apache_jira",
-                            "description": (i["fields"].get("description") or "")[:300],
-                            "excerpt": (i["fields"].get("description") or "")[:200],
-                            "relevance": "medium",
-                        }
-                    )
-                log.info(
-                    "Apache JIRA search",
-                    project=project_key,
-                    query=query,
-                    count=len(results),
-                )
-                return results
-        except Exception as e:
-            log.warning("Apache JIRA search failed", project=project_key, error=str(e))
-            return []
 
-    async def _fetch_github_issues(self, query: str, repo: str) -> list[dict]:
-        """Search GitHub issues on relevant open-source repos (public API)."""
-        url = "https://api.github.com/search/issues"
-        params = {
-            "q": f"{query} repo:{repo} type:issue",
-            "per_page": 5,
-            "sort": "relevance",
-        }
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(url, params=params, headers=headers)
-                resp.raise_for_status()
-                items = resp.json().get("items", [])
-                results = []
-                for i in items:
-                    results.append(
-                        {
-                            "id": f"#{i['number']}",
-                            "title": i["title"],
-                            "url": i["html_url"],
-                            "status": i["state"],
-                            "source": "github",
-                            "description": (i.get("body") or "")[:300],
-                            "excerpt": (i.get("body") or "")[:200],
-                            "relevance": "medium",
-                        }
-                    )
-                log.info(
-                    "GitHub Issues search", repo=repo, query=query, count=len(results)
-                )
-                return results
-        except Exception as e:
-            log.warning("GitHub Issues search failed", repo=repo, error=str(e))
-            return []
 
     async def _run_react_loop(
         self,

@@ -31,6 +31,7 @@ async def test_get_bugs_filters_by_project(monkeypatch):
         project_key = "PROJ-A"
         display_name = "Source 1"
         base_url = "https://github.com/proj-a"
+        cache_key = "fake-1"
 
         async def search_open_bugs(self, status, severity, max_results):
             return [
@@ -49,6 +50,7 @@ async def test_get_bugs_filters_by_project(monkeypatch):
         project_key = "PROJ-B"
         display_name = "Source 2"
         base_url = "https://github.com/proj-b"
+        cache_key = "fake-2"
 
         async def search_open_bugs(self, status, severity, max_results):
             return [
@@ -61,7 +63,7 @@ async def test_get_bugs_filters_by_project(monkeypatch):
                 }
             ]
 
-    async def mock_get_all_enabled():
+    async def mock_get_all_enabled(user_id=None):
         return [FakeConnector(), FakeConnector2()]
 
     monkeypatch.setattr(ConnectorRegistry, "get_all_enabled", mock_get_all_enabled)
@@ -72,7 +74,7 @@ async def test_get_bugs_filters_by_project(monkeypatch):
 
     # Mock assemble_grouped_bug_list to bypass database queries
     import api_gateway.services.bug_service as bug_service
-    async def mock_assemble(raw_bugs, db):
+    async def mock_assemble(raw_bugs, db, user_id=None):
         for b in raw_bugs:
             b["type"] = "standalone"
             b["is_triaged"] = False
@@ -137,6 +139,7 @@ async def test_get_bugs_filters_by_jira_source(monkeypatch):
         project_key = "JIRA-PROJ"
         display_name = "Jira Source"
         base_url = "https://jira.apache.org"
+        cache_key = "fake-jira"
 
         async def search_open_bugs(self, status, severity, max_results):
             return [
@@ -155,6 +158,7 @@ async def test_get_bugs_filters_by_jira_source(monkeypatch):
         project_key = "GH-PROJ"
         display_name = "Github Source"
         base_url = "https://github.com"
+        cache_key = "fake-gh"
 
         async def search_open_bugs(self, status, severity, max_results):
             return [
@@ -167,7 +171,7 @@ async def test_get_bugs_filters_by_jira_source(monkeypatch):
                 }
             ]
 
-    async def mock_get_all_enabled():
+    async def mock_get_all_enabled(user_id=None):
         return [FakeJiraConnector(), FakeGithubConnector()]
 
     monkeypatch.setattr(ConnectorRegistry, "get_all_enabled", mock_get_all_enabled)
@@ -178,7 +182,7 @@ async def test_get_bugs_filters_by_jira_source(monkeypatch):
 
     # Mock assemble_grouped_bug_list to bypass database queries
     import api_gateway.services.bug_service as bug_service
-    async def mock_assemble(raw_bugs, db):
+    async def mock_assemble(raw_bugs, db, user_id=None):
         for b in raw_bugs:
             b["type"] = "standalone"
             b["is_triaged"] = False
