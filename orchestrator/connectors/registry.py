@@ -180,6 +180,14 @@ class ConnectorRegistry:
                 return connector
 
         if ticket_id.isdigit():
+            bugzilla_connectors = [
+                connector
+                for connector in connectors
+                if connector.system_type == "bugzilla"
+            ]
+            if len(bugzilla_connectors) == 1:
+                return bugzilla_connectors[0]
+
             github_connectors = [
                 connector
                 for connector in connectors
@@ -191,8 +199,8 @@ class ConnectorRegistry:
         return None
 
     @classmethod
-    async def get_by_type(cls, system_type: str) -> BaseConnector | None:
-        connectors = await cls.get_all_by_type(system_type)
+    async def get_by_type(cls, system_type: str, user_id: str | None = None) -> BaseConnector | None:
+        connectors = await cls.get_all_by_type(system_type, user_id=user_id)
         if len(connectors) > 1:
             log.warning(
                 "ConnectorRegistry: get_by_type returned first of many",
@@ -202,9 +210,9 @@ class ConnectorRegistry:
         return connectors[0] if connectors else None
 
     @classmethod
-    async def get_all_by_type(cls, system_type: str) -> list[BaseConnector]:
+    async def get_all_by_type(cls, system_type: str, user_id: str | None = None) -> list[BaseConnector]:
         normalized = (system_type or "").strip().lower()
-        connectors = await cls.get_all_enabled()
+        connectors = await cls.get_all_enabled(user_id=user_id)
         return [
             connector for connector in connectors if connector.system_type == normalized
         ]

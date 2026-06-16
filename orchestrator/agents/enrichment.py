@@ -139,25 +139,53 @@ class EnrichmentAgent(BaseAgent):
         log.info("Enrichment initial query", query=initial_query)
 
         kb_articles = []
+        so_articles = []
 
-        # ReAct loop: iteration 0 runs Confluence + SO in
-        # parallel internally; iterations 1+ refine via LLM
-        self._iter0_so_results = []
-        conf_result = await self._run_react_loop(
-            title,
-            component,
-            description,
-            error_excerpt,
-            initial_query,
-            target_space,
-            groq_api_key,
-            enrichment_model,
-        )
+        # Check if there are any knowledge base sources enabled
+        engineer_id = context.get("engineer_id")
+        has_kb_sources = False
+        try:
+            kb_connectors = await ConnectorRegistry.get_all_by_type(
+                "confluence", user_id=engineer_id
+            ) + await ConnectorRegistry.get_all_by_type("support_kb", user_id=engineer_id)
+            if not kb_connectors:
+                all_c = await ConnectorRegistry.get_all_enabled(user_id=engineer_id)
+                kb_connectors = [
+                    c for c in all_c if getattr(c, "is_knowledge_source", False)
+                ]
+            if kb_connectors:
+                has_kb_sources = True
+        except Exception as e:
+            log.warning("Enrichment: failed to check KB connectors", err=str(e))
 
-        if isinstance(conf_result, list):
-            kb_articles = conf_result
-
-        so_articles = self._iter0_so_results
+        if not groq_api_key or not has_kb_sources:
+            log.info(
+                "Enrichment: Bypassing ReAct loop",
+                has_groq_key=bool(groq_api_key),
+                has_kb_sources=has_kb_sources,
+            )
+            try:
+                so_articles = await self._fetch_stack_overflow(initial_query)
+            except Exception as e:
+                log.warning("Enrichment: StackOverflow fetch failed", err=str(e))
+        else:
+            # ReAct loop: iteration 0 runs Confluence + SO in
+            # parallel internally; iterations 1+ refine via LLM
+            self._iter0_so_results = []
+            conf_result = await self._run_react_loop(
+                title,
+                component,
+                description,
+                error_excerpt,
+                initial_query,
+                target_space,
+                groq_api_key,
+                enrichment_model,
+                user_id=engineer_id,
+            )
+            if isinstance(conf_result, list):
+                kb_articles = conf_result
+            so_articles = self._iter0_so_results
 
         # Tag every item with its source
         for item in kb_articles:
@@ -190,6 +218,7 @@ class EnrichmentAgent(BaseAgent):
         target_space: str,
         api_key: str,
         model: str,
+        user_id: str = None,
     ) -> list:
         if not api_key:
             return []
@@ -229,7 +258,7 @@ class EnrichmentAgent(BaseAgent):
                         }
                     )
                     conf_r, so_r = await asyncio.gather(
-                        self._search_confluence(query, target_space),
+                        self._search_confluence(query, target_space, user_id=user_id),
                         self._fetch_stack_overflow(query),
                         return_exceptions=True,
                     )
@@ -294,7 +323,7 @@ class EnrichmentAgent(BaseAgent):
                         .strip("\"'")
                     )
 
-                    results = await self._search_confluence(query, target_space)
+                    results = await self._search_confluence(query, target_space, user_id=user_id)
 
                     if not results:
                         obs = (
@@ -320,15 +349,15 @@ class EnrichmentAgent(BaseAgent):
         return []
 
     async def _search_confluence(
-        self, query: str, target_space: str = None
+        self, query: str, target_space: str = None, user_id: str = None
     ) -> list[dict]:
         try:
             connectors = await ConnectorRegistry.get_all_by_type(
-                "confluence"
-            ) + await ConnectorRegistry.get_all_by_type("support_kb")
+                "confluence", user_id=user_id
+            ) + await ConnectorRegistry.get_all_by_type("support_kb", user_id=user_id)
             if not connectors:
                 try:
-                    all_c = await ConnectorRegistry.get_all_enabled()
+                    all_c = await ConnectorRegistry.get_all_enabled(user_id=user_id)
                     connectors = [
                         c for c in all_c if getattr(c, "is_knowledge_source", False)
                     ]

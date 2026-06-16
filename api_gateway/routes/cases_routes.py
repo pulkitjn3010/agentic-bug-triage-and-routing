@@ -220,7 +220,7 @@ async def _background_fetch_connector(connectors: list) -> None:
             primary_connector.search_open_bugs(
                 status="open",
                 severity="",
-                max_results=120,
+                max_results=2000,
             ),
             timeout=90.0,
         )

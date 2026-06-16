@@ -35,7 +35,7 @@ async def assemble_grouped_bug_list(
     live_by_ticket = {b["ticket_id"]: b for b in raw_bugs if b.get("ticket_id")}
 
     # Get active connector project keys
-    all_connectors = await ConnectorRegistry.get_all_enabled()
+    all_connectors = await ConnectorRegistry.get_all_enabled(user_id=user_id)
     conn_project_keys = {c.source_id: getattr(c, "project_key", "") for c in all_connectors}
 
     # Step 2: batch group-mapping lookup
@@ -334,7 +334,7 @@ async def get_bugs(
 
     fetch_status = status or "open"
     fetch_severity = severity or ""
-    max_results = max(page * page_size, 100)
+    max_results = max(page * page_size, 2000)
     fetch_results = await asyncio.gather(
         *[
             _fetch_buglist_for_connector(

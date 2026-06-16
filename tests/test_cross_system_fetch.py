@@ -10,7 +10,7 @@ def run(coro):
 
 class EmptyRegistry:
     @classmethod
-    async def get_all_enabled(cls):
+    async def get_all_enabled(cls, *args, **kwargs):
         return []
 
 

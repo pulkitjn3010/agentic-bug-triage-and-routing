@@ -65,6 +65,16 @@ class FakeConnector:
         self.ticket_prefix = "STO"
         self.display_name = "JIRA Storage Team"
         self.ticket = ticket or make_ticket()
+        if self.ticket and not getattr(self.ticket, "linked_items", None):
+            self.ticket.linked_items = [
+                {
+                    "raw_id": "BUG-49201",
+                    "source": "bugzilla",
+                    "type": "relates",
+                    "title": "Related Bugzilla issue",
+                    "url": "https://bugzilla.example.test/show_bug.cgi?id=49201",
+                }
+            ]
         self.fail = fail
         self.requested_ticket_id = None
 
@@ -75,15 +85,7 @@ class FakeConnector:
         return self.ticket
 
     async def get_linked_items(self, ticket_id: str):
-        return [
-            {
-                "raw_id": "BUG-49201",
-                "source": "bugzilla",
-                "type": "relates",
-                "title": "Related Bugzilla issue",
-                "url": "https://bugzilla.example.test/show_bug.cgi?id=49201",
-            }
-        ]
+        return getattr(self.ticket, "linked_items", [])
 
 
 class FakePortal:

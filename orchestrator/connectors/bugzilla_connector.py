@@ -1,6 +1,10 @@
+import asyncio
 import httpx
+import structlog
 from .base_connector import BaseConnector
 from ..models.ticket import TicketData, ChangeEvent
+
+log = structlog.get_logger()
 
 BZ_STATUS_MAP = {
     "UNCONFIRMED": "Open",
@@ -70,28 +74,53 @@ class BugzillaConnector(BaseConnector):
 
     async def get(self, ticket_id: str) -> TicketData | None:
         url = f"{self.base_url}/rest/bug/{ticket_id}"
+        comment_url = f"{self.base_url}/rest/bug/{ticket_id}/comment"
         params = {
-            "include_fields": "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also,description"
+            "include_fields": "id,summary,status,priority,severity,component,assigned_to,creator,creation_time,last_change_time,see_also"
         }
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                resp = await client.get(url, headers=self._headers(), params=params)
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                # Fetch bug info and comments in parallel
+                bug_task = client.get(url, headers=self._headers(), params=params)
+                comment_task = client.get(comment_url, headers=self._headers())
+                
+                resp, comment_resp = await asyncio.gather(bug_task, comment_task, return_exceptions=True)
+                
+                if isinstance(resp, Exception):
+                    log.warning("BugzillaConnector: bug fetch failed exception", ticket_id=ticket_id, error=str(resp))
+                    return None
+                    
                 if resp.status_code == 404:
+                    log.warning("BugzillaConnector: bug not found", ticket_id=ticket_id)
                     return None
                 resp.raise_for_status()
                 raw_data = resp.json()
                 bugs = raw_data.get("bugs") or []
                 if not bugs:
+                    log.warning("BugzillaConnector: bug payload empty", ticket_id=ticket_id)
                     return None
                 ticket = self._normalise(bugs[0])
                 ticket.direct_reference_links = self.extract_links(raw_data)
+                
+                # Extract comment 0 as description
+                if not isinstance(comment_resp, Exception) and comment_resp.status_code == 200:
+                    comment_data = comment_resp.json()
+                    bug_comments_dict = comment_data.get("bugs", {})
+                    bug_comments = bug_comments_dict.get(str(ticket_id)) or bug_comments_dict.get(str(ticket.ticket_id)) or {}
+                    comments_list = bug_comments.get("comments", [])
+                    if comments_list:
+                        ticket.description = str(comments_list[0].get("text", ""))[:2000]
+                elif isinstance(comment_resp, Exception):
+                    log.warning("BugzillaConnector: comments fetch failed exception", ticket_id=ticket_id, error=str(comment_resp))
+                
                 return ticket
-        except Exception:
+        except Exception as e:
+            log.warning("BugzillaConnector: failed to get ticket", ticket_id=ticket_id, error=str(e))
             return None
 
-    async def search(self, query: str, max_results: int = 300) -> list[TicketData]:
+    async def search(self, query: str, max_results: int = 2000) -> list[TicketData]:
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
                 if not query:
                     url = f"{self.base_url}/rest/bug"
                     params = [
@@ -123,7 +152,7 @@ class BugzillaConnector(BaseConnector):
                 bugs = resp.json().get("bugs") or []
                 return [self._normalise(bug) for bug in bugs if isinstance(bug, dict)]
         except Exception as e:
-            print(f"[Bugzilla] search failed: {e}")
+            log.warning("BugzillaConnector: search failed", query=query, error=str(e))
             return []
 
     async def get_linked_items(self, ticket_id: str) -> list[dict]:
@@ -136,9 +165,10 @@ class BugzillaConnector(BaseConnector):
         url = f"{self.base_url}/rest/bug/{ticket_id}"
         params = {"include_fields": "last_change_time,priority,status"}
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                 resp = await client.get(url, headers=self._headers(), params=params)
                 if resp.status_code != 200:
+                    log.warning("BugzillaConnector: lightweight fetch failed status", ticket_id=ticket_id, status=resp.status_code)
                     return {}
                 bugs = resp.json().get("bugs", [])
                 if not bugs:
@@ -149,7 +179,8 @@ class BugzillaConnector(BaseConnector):
                     "severity": "Unknown",
                     "status": b.get("status", ""),
                 }
-        except Exception:
+        except Exception as e:
+            log.warning("BugzillaConnector: lightweight fetch failed", ticket_id=ticket_id, error=str(e))
             return {}
 
     def extract_links(self, raw_payload: dict) -> list[dict]:
@@ -216,7 +247,7 @@ class BugzillaConnector(BaseConnector):
     async def get_changelog(self, ticket_id: str, since: str = "") -> list[ChangeEvent]:
         url = f"{self.base_url}/rest/bug/{ticket_id}/history"
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
                 resp = await client.get(url, headers=self._headers())
                 resp.raise_for_status()
                 data = resp.json()
@@ -239,5 +270,6 @@ class BugzillaConnector(BaseConnector):
                                 )
                             )
                 return changes
-        except Exception:
+        except Exception as e:
+            log.warning("BugzillaConnector: get_changelog failed", ticket_id=ticket_id, error=str(e))
             return []

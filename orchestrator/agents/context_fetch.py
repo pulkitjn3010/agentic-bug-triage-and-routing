@@ -120,14 +120,8 @@ class ContextFetchAgent(BaseAgent):
             )
 
         # ── Fetch linked items ────────────────────────────────────
-        linked_items = []
-        try:
-            linked_items = await asyncio.wait_for(
-                connector.get_linked_items(bug_id), timeout=8.0
-            )
-            log.info("ContextFetch: linked items", count=len(linked_items))
-        except Exception as e:
-            log.warning("ContextFetch: linked_items failed", err=str(e))
+        linked_items = getattr(ticket, "linked_items", []) or []
+        log.info("ContextFetch: linked items from ticket", count=len(linked_items))
 
         # ── Fetch customer cases ──────────────────────────────────
         customer_cases = []

@@ -39,15 +39,30 @@ async def start_triage(
             if prefix and bug_id.upper().startswith(prefix + "-"):
                 source_id = src.source_id
                 break
-        # For numeric IDs without prefix, use first GitHub connector
+        # For numeric IDs without prefix, check bugzilla then github
         if not source_id:
             for src in sources:
-                if src.system_type == "github" and bug_id.isdigit():
+                if src.system_type == "bugzilla" and bug_id.isdigit():
                     source_id = src.source_id
                     break
+            if not source_id:
+                for src in sources:
+                    if src.system_type == "github" and bug_id.isdigit():
+                        source_id = src.source_id
+                        break
         # Last resort: first enabled source
         if not source_id and sources:
             source_id = sources[0].source_id
+
+    # If user_id is set and source_id is a global ID (doesn't start with user_id prefix),
+    # check if the user has an enabled override for it and map to it.
+    if user_id and source_id and not source_id.startswith(f"{user_id}-"):
+        override_id = f"{user_id}-{source_id}"
+        async with AsyncSessionLocal() as db:
+            from orchestrator.db.repositories.source_registry import get_source_by_id
+            override_src = await get_source_by_id(db, override_id)
+            if override_src and override_src.enabled:
+                source_id = override_id
 
     if not source_id:
         raise HTTPException(status_code=400, detail="No source system configured")

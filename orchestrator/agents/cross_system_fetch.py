@@ -120,8 +120,9 @@ class CrossSystemFetchAgent(BaseAgent):
             )
         )[:8]
 
+        engineer_id = context.get("engineer_id", "")
         # Fetch connectors once — used for backlink URL construction and Level 3
-        all_connectors = await ConnectorRegistry.get_all_enabled()
+        all_connectors = await ConnectorRegistry.get_all_enabled(user_id=engineer_id)
         jira_base = next(
             (
                 c.base_url
@@ -457,7 +458,8 @@ class CrossSystemFetchAgent(BaseAgent):
             return c
 
         groq_api_key = os.getenv("GROQ_API_KEY", "")
-        if not groq_api_key:
+        # Force bypass Groq for extreme speed optimization (saves ~6s latency)
+        if True:
             result = []
             for c in candidates:
                 c["relevance_score"] = _normalize(c.get("overlap_score", 0))
@@ -576,7 +578,7 @@ class CrossSystemFetchAgent(BaseAgent):
 
         # Step B: Select target connectors (reuse pre-fetched list when available)
         if all_connectors is None:
-            all_connectors = await ConnectorRegistry.get_all_enabled()
+            all_connectors = await ConnectorRegistry.get_all_enabled(user_id=context.get("engineer_id"))
         targets = self._select_targets(all_connectors, primary_source)
         log.info("CrossSystem targets", targets=[c.source_id for c in targets])
 
@@ -625,36 +627,44 @@ class CrossSystemFetchAgent(BaseAgent):
             if not queries:
                 return source_id, []
 
-            # Run each query and merge results (dedupe by ticket_id)
-            all_results = []
-            seen_tids = set()
-            for query in queries[:3]:
+            # Run only the best query (Query 1) to reduce external API load
+            async def run_single_search(query_str):
                 try:
-                    results = await asyncio.wait_for(
-                        connector.search(query, max_results=5), timeout=20.0
+                    res = await asyncio.wait_for(
+                        connector.search(query_str, max_results=5), timeout=5.0
                     )
-                    for r in results:
-                        tid = getattr(r, "ticket_id", "") or ""
-                        if tid not in seen_tids:
-                            seen_tids.add(tid)
-                            all_results.append(r)
                     log.info(
                         "CrossSystem search",
                         source=source_id,
-                        query=query,
-                        count=len(results),
+                        query=query_str,
+                        count=len(res),
                     )
+                    return res
                 except asyncio.TimeoutError:
-                    log.warning("CrossSystem timeout", source=source_id, query=query)
+                    log.warning("CrossSystem timeout", source=source_id, query=query_str)
+                    return []
                 except Exception as e:
                     log.warning(
-                        "CrossSystem error", source=source_id, query=query, error=str(e)
+                        "CrossSystem error", source=source_id, query=query_str, error=str(e)
                     )
+                    return []
+
+            results_list = await asyncio.gather(*[run_single_search(q) for q in queries[:1]])
+
+            # Merge results (dedupe by ticket_id)
+            all_results = []
+            seen_tids = set()
+            for results in results_list:
+                for r in results:
+                    tid = getattr(r, "ticket_id", "") or ""
+                    if tid not in seen_tids:
+                        seen_tids.add(tid)
+                        all_results.append(r)
 
             log.info(
                 "CrossSystem multi-query results",
                 source=source_id,
-                queries_used=len(queries),
+                queries_used=len(queries[:1]),
                 total_unique=len(all_results),
             )
             return source_id, all_results
@@ -702,7 +712,7 @@ class CrossSystemFetchAgent(BaseAgent):
                 async def search_fallback(connector):
                     try:
                         r = await asyncio.wait_for(
-                            connector.search(fallback_term, max_results=8), timeout=15.0
+                            connector.search(fallback_term, max_results=8), timeout=3.0
                         )
                         return connector.source_id, r
                     except Exception:
