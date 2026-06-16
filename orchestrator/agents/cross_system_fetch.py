@@ -472,6 +472,7 @@ class CrossSystemFetchAgent(BaseAgent):
                     "threshold (no-key path) — returning empty"
                 )
             return result[:10]
+            
 
         cands_text = ""
         for i, c in enumerate(candidates):
