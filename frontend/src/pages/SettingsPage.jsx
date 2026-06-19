@@ -233,12 +233,20 @@ const setCachedFilter = (nextFilter) => {
   setConnectionsError('')
   return getConnections()
     .then((data) => {
-      const nextConnections = data.connections || []
+      const rawConnections = data.connections || []
+      const sortedConns = [...rawConnections].sort((a, b) => {
+        if (a.enabled !== b.enabled) {
+          return a.enabled ? -1 : 1
+        }
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+        return timeB - timeA
+      })
       const nextByType = data.by_type || {}
-      settingsCache.connections = nextConnections
+      settingsCache.connections = sortedConns
       settingsCache.byType = nextByType
       settingsCache.lastFetchedConnections = Date.now()
-      setConnections(nextConnections)
+      setConnections(sortedConns)
       setByType(nextByType)
     })
     .catch((err) => {
