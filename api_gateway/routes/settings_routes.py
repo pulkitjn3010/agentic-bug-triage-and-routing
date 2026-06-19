@@ -90,6 +90,9 @@ async def update_connection(
             updates["ticket_prefix"] = body.ticket_prefix
         if body.enabled is not None:
             updates["enabled"] = body.enabled
+            if body.enabled:
+                from orchestrator.db.models import utcnow
+                updates["created_at"] = utcnow()
 
         new_token = body.auth_token or body.token
         if new_token:
@@ -106,6 +109,7 @@ async def update_connection(
                 source = await get_source_by_id(db, override_id)
             else:
                 from orchestrator.db.repositories.source_registry import SourceRegistry
+                from orchestrator.db.models import utcnow
                 new_override = SourceRegistry(
                     source_id=override_id,
                     display_name=updates.get("display_name", source.display_name),
@@ -118,6 +122,7 @@ async def update_connection(
                     ticket_prefix=updates.get("ticket_prefix", source.ticket_prefix),
                     owner_id=user.user_id,
                     enabled=updates.get("enabled", source.enabled),
+                    created_at=updates.get("created_at") or source.created_at or utcnow(),
                 )
                 db.add(new_override)
                 await db.commit()

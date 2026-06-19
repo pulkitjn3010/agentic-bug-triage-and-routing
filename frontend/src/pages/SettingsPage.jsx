@@ -102,6 +102,27 @@ function FieldBadge({ label, value, color }) {
   )
 }
 
+const InfoIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
+function InfoTooltip({ text, position = '', align = '' }) {
+  return (
+    <span className="tooltip-wrap">
+      <span className="tooltip-icon">
+        <InfoIcon />
+      </span>
+      <span className={`tooltip-box ${position} ${align}`}>
+        {text}
+      </span>
+    </span>
+  )
+}
+
 function AccessIndicator({ conn }) {
   const access = normalizeAccessType(conn)
   return <FieldBadge label="Access" value={access} color={ACCESS_COLORS[access] || '#9AA3B5'} />
@@ -212,12 +233,20 @@ const setCachedFilter = (nextFilter) => {
   setConnectionsError('')
   return getConnections()
     .then((data) => {
-      const nextConnections = data.connections || []
+      const rawConnections = data.connections || []
+      const sortedConns = [...rawConnections].sort((a, b) => {
+        if (a.enabled !== b.enabled) {
+          return a.enabled ? -1 : 1
+        }
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+        return timeB - timeA
+      })
       const nextByType = data.by_type || {}
-      settingsCache.connections = nextConnections
+      settingsCache.connections = sortedConns
       settingsCache.byType = nextByType
       settingsCache.lastFetchedConnections = Date.now()
-      setConnections(nextConnections)
+      setConnections(sortedConns)
       setByType(nextByType)
     })
     .catch((err) => {
@@ -450,10 +479,36 @@ const setCachedFilter = (nextFilter) => {
         <div style={{ flex: 1 }}>
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{filterLabel}</h3>
-              <button className="btn btn-teal btn-sm" onClick={() => setShowAddModal(true)}>
-                + Add Connection
-              </button>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {filterLabel}
+                <InfoTooltip 
+                  text={
+                    <ul className="tooltip-list">
+                      <li><strong>Integrations:</strong> Connects Jira, GitHub, Bugzilla, and Confluence to this tool.</li>
+                      <li><strong>Enable Connection:</strong> Actively queries this system during new triage pipeline runs.</li>
+                      <li><strong>Disable Connection:</strong> Soft-deletes this connector; preserves past logs but stops active runs.</li>
+                    </ul>
+                  } 
+                  align="align-left"
+                />
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <InfoTooltip 
+                  text={
+                    <ul className="tooltip-list">
+                      <li><strong>Display Name:</strong> A friendly name for the integration (e.g., <code>Company Jira</code>).</li>
+                      <li><strong>Base URL:</strong> The API endpoint (e.g., <code>https://api.github.com</code> or <code>https://domain.atlassian.net</code>).</li>
+                      <li><strong>Project Key:</strong> Target tracker project identifier (e.g., <code>PROJ</code>).</li>
+                      <li><strong>Ticket Prefix:</strong> Uppercase matching prefix (e.g., <code>STOR</code>) for automated ticket mapping.</li>
+                      <li><strong>API Token:</strong> Personal Access Token (PAT) for auth, stored in the secure vault.</li>
+                    </ul>
+                  } 
+                  align="align-right"
+                />
+                <button className="btn btn-teal btn-sm" onClick={() => setShowAddModal(true)}>
+                  + Add Connection
+                </button>
+              </div>
             </div>
 
             <div style={{

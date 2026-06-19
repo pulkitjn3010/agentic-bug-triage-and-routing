@@ -8,6 +8,7 @@ import ResultsPage from './pages/ResultsPage'
 import HistoryPage from './pages/HistoryPage'
 import DashboardPage from './pages/DashboardPage'
 import SettingsPage from './pages/SettingsPage'
+import { HelpProvider } from './context/HelpContext'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -32,7 +33,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+        <Route path="/" element={<ProtectedRoute><HelpProvider><AppLayout /></HelpProvider></ProtectedRoute>}>
           <Route path="bugs" element={<BugListPage />} />
           <Route path="triage/:caseId" element={<TriagePage />} />
           <Route path="results/:caseId" element={<ResultsPage />} />

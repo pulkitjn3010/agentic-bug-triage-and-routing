@@ -12,20 +12,25 @@ async def get_all_sources(db: AsyncSession, user_id: str | None = None) -> list[
     global_result = await db.execute(select(SourceRegistry).where(SourceRegistry.owner_id == None))
     global_sources = {s.source_id: s for s in global_result.scalars().all()}
 
-    # Get user overrides
+    # Get user overrides and custom connections
     user_result = await db.execute(select(SourceRegistry).where(SourceRegistry.owner_id == user_id))
-    user_sources = {s.source_id.replace(f"{user_id}-", "", 1): s for s in user_result.scalars().all() if s.source_id.startswith(f"{user_id}-")}
+    user_records = list(user_result.scalars().all())
+
+    user_sources = {s.source_id.replace(f"{user_id}-", "", 1): s for s in user_records if s.source_id.startswith(f"{user_id}-")}
     # Also include custom ones that user created which don't map to a global template
-    custom_sources = [s for s in user_result.scalars().all() if not s.source_id.startswith(f"{user_id}-") or s.source_id.replace(f"{user_id}-", "", 1) not in global_sources]
+    custom_sources = [s for s in user_records if not s.source_id.startswith(f"{user_id}-") or s.source_id.replace(f"{user_id}-", "", 1) not in global_sources]
 
     merged_sources = []
     for g_id, g_source in global_sources.items():
         if g_id in user_sources:
-            # Override enabled status from user
-            g_source.enabled = user_sources[g_id].enabled
+            # Use the user's override directly so all of their custom values
+            # (display_name, base_url, project_key, ticket_prefix, enabled status)
+            # are shown, and the source_id matches the one used by connectors in registry.
+            merged_sources.append(user_sources[g_id])
         else:
+            # If no override exists, we show the global template as disabled
             g_source.enabled = False
-        merged_sources.append(g_source)
+            merged_sources.append(g_source)
 
     merged_sources.extend(custom_sources)
     return merged_sources
