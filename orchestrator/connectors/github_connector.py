@@ -1,7 +1,6 @@
 import re
 import httpx
 import asyncio
-import math
 from .base_connector import BaseConnector
 from ..models.ticket import TicketData, ChangeEvent
 
@@ -146,15 +145,14 @@ class GithubConnector(BaseConnector):
     async def search(
         self, query: str, max_results: int = 300, page: int = 1
     ) -> list[TicketData]:
-        requested = max(1, int(max_results or 10))
-        per_page = min(requested, 100)
-        max_pages = max(1, math.ceil(requested / per_page))
+        MAX_PAGES = 20  # 2000 bugs ceiling for GitHub to avoid heavy rate limits
+        per_page = 100
 
         async def fetch_page(p: int, client: httpx.AsyncClient):
             if query:
                 url = f"https://api.github.com/search/issues"
                 params = {
-                    "q": f"{query} repo:{self._repo()} is:issue",
+                    "q": f"{query}+repo:{self._repo()}+is:issue+is:open",
                     "per_page": per_page,
                     "page": p,
                 }
@@ -179,24 +177,21 @@ class GithubConnector(BaseConnector):
 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
+                # To be fast but respect GitHub limits, we'll fetch in batches of 5 pages
                 all_raw_items = []
-                for batch_start in range(page, page + max_pages, 5):
+                for batch_start in range(1, MAX_PAGES + 1, 5):
                     tasks = [
                         fetch_page(p, client)
-                        for p in range(batch_start, min(batch_start + 5, page + max_pages))
+                        for p in range(batch_start, batch_start + 5)
                     ]
                     batch_results = await asyncio.gather(*tasks)
 
                     batch_had_full_page = False
                     for page_items in batch_results:
                         all_raw_items.extend(page_items)
-                        if len(all_raw_items) >= requested:
-                            break
                         if len(page_items) == per_page:
                             batch_had_full_page = True
 
-                    if len(all_raw_items) >= requested:
-                        break
                     if not batch_had_full_page:
                         break  # We reached the end
 
@@ -204,7 +199,7 @@ class GithubConnector(BaseConnector):
                     self._normalise(i)
                     for i in all_raw_items
                     if i.get("pull_request") is None
-                ][:requested]
+                ]
         except Exception as e:
             print(f"[GITHUB] Search error: {e}")
             return []
