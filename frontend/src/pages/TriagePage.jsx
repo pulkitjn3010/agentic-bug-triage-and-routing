@@ -343,7 +343,7 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
             <span className="panel-title">Related Issues</span>
             {(() => {
               const tickets = (related.related_tickets || []).filter(
-                (t) => (t.relevance_score || t.similarity_score || 0) >= 0.5
+                (t) => (t.similarity_score || t.relevance_score || 0) >= 0.6
               )
               return (
                 <span className="panel-badge pb-blue">
@@ -355,7 +355,7 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
           <div className="panel-body scroll">
             {(() => {
               const tickets = (related.related_tickets || []).filter(
-                (t) => (t.relevance_score || t.similarity_score || 0) >= 0.5
+                (t) => (t.similarity_score || t.relevance_score || 0) >= 0.6
               )
               if (!tickets.length) {
                 return (
@@ -410,7 +410,7 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                   : title
 
                 return (
-                  <div key={i} className="issue-card">
+                  <div key={`${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`} className="issue-card">
                     <div className="issue-top">
                       {relBadge(t.source || t.system_type)}
                       {hasUrl ? (

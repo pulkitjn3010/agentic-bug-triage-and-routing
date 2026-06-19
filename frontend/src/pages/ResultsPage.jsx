@@ -95,6 +95,9 @@ export default function ResultsPage() {
   const caseShort  = result.id ? `BT-${String(result.id).padStart(3, '0')}` : `BT-${caseId.slice(0, 6).toUpperCase()}`
   const srcType    = ticket.system_type || ticket.source
   const customerSignals = ticket.customer_signals || ctx.customer_signals || ctx.customer_cases || []
+  const relatedTickets = (ctx.related_tickets || []).filter(
+    (item) => (item.similarity_score || item.relevance_score || 0) >= 0.6
+  )
 
   return (
     <div className="fade-in">
@@ -169,12 +172,12 @@ export default function ResultsPage() {
           <div className="panel-hdr">
             <div className="panel-num pn-blue">02</div>
             <span className="panel-title">Related Issues</span>
-            <span className="panel-badge pb-blue">{ctx.related_tickets?.length || 0} found</span>
+            <span className="panel-badge pb-blue">{relatedTickets.length} found</span>
           </div>
           <div className="panel-body scroll">
-            {!ctx.related_tickets?.length ? (
+            {!relatedTickets.length ? (
               <p style={{ color: 'var(--text3)', fontSize: 13 }}>No related issues found.</p>
-            ) : ctx.related_tickets.map((t, i) => {
+            ) : relatedTickets.map((t, i) => {
               const score    = t.similarity_score || t.relevance_score || 0
               const pct      = toPercent(score)
               const simCls   = score >= 0.8 ? 'h' : score >= 0.6 ? 'm' : 'l'
@@ -182,7 +185,7 @@ export default function ResultsPage() {
               const barColor = score >= 0.8 ? 'var(--teal)' : 'var(--orange)'
               const hasUrl   = t.url && t.url.startsWith('https://')
               return (
-                <div key={i} className="issue-card">
+                <div key={`${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`} className="issue-card">
                   <div className="issue-top">
                     <span className="mono" style={{ fontSize: 11, color: hasUrl ? 'var(--blue)' : 'var(--text2)', flexShrink: 0 }}>
                       <TicketLink ticket={t} />

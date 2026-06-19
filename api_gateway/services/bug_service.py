@@ -21,6 +21,47 @@ _BUG_SOURCE_TYPES = {"github", "jira", "jira_apache", "bugzilla"}
 SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "Unknown": 4}
 
 
+def _unique_backend_connectors(connectors: list, user_id: str | None) -> list:
+    unique = {}
+    for connector in connectors:
+        key = getattr(connector, "cache_key", "") or connector.source_id
+        current = unique.get(key)
+        if current is None or (
+            user_id
+            and getattr(connector, "owner_id", None) == user_id
+            and getattr(current, "owner_id", None) != user_id
+        ):
+            unique[key] = connector
+    return list(unique.values())
+
+
+def _normalized_bug_id(value) -> str:
+    text = str(value or "").strip().upper().rstrip("/")
+    if "/ISSUES/" in text:
+        text = text.rsplit("/ISSUES/", 1)[-1]
+    if "SHOW_BUG.CGI" in text and "ID=" in text:
+        text = text.split("ID=", 1)[-1].split("&", 1)[0]
+    return text[1:] if text.startswith("#") else text
+
+
+def _deduplicate_bug_rows(rows: list[tuple[object, dict]]) -> list[dict]:
+    unique: dict[tuple[str, str], dict] = {}
+    for connector, bug in rows:
+        ticket_id = _normalized_bug_id(
+            bug.get("ticket_id") or bug.get("id") or bug.get("key")
+        )
+        if not ticket_id:
+            continue
+        backend = getattr(connector, "cache_key", "") or connector.source_id
+        key = (str(backend), ticket_id)
+        current = unique.get(key)
+        if current is None or len(str(bug.get("description") or "")) > len(
+            str(current.get("description") or "")
+        ):
+            unique[key] = bug
+    return list(unique.values())
+
+
 # ── Helpers ────────────────────────────────────────────────────────
 
 async def assemble_grouped_bug_list(
@@ -316,6 +357,7 @@ async def get_bugs(
         connectors = [
             c for c in connectors if c.source_id == source or c.system_type == source or (source == "jira" and c.system_type.startswith("jira"))
         ]
+    connectors = _unique_backend_connectors(connectors, user_id=user_id)
 
     if not connectors:
         return {
@@ -348,7 +390,7 @@ async def get_bugs(
         return_exceptions=True,
     )
 
-    all_bugs = []
+    bug_rows: list[tuple[object, dict]] = []
     source_errors = []
     cache_statuses = []
     for connector, result in zip(connectors, fetch_results):
@@ -362,11 +404,12 @@ async def get_bugs(
             )
             continue
 
-        all_bugs.extend(result.get("bugs") or [])
+        bug_rows.extend((connector, bug) for bug in (result.get("bugs") or []))
         cache_statuses.append(result.get("cache_status", "miss"))
         if result.get("error"):
             source_errors.append(result["error"])
 
+    all_bugs = _deduplicate_bug_rows(bug_rows)
     sources_online = len(connectors) - len(source_errors)
 
     # Filters

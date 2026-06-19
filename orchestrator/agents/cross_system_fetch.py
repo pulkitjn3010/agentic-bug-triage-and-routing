@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import inspect
 import json
+import math
 import os
 import re
 from typing import Any
@@ -45,10 +46,13 @@ class CrossSystemFetchAgent(BaseAgent):
         if not primary.get('title') and (not primary.get('ticket_id')):
             log.warning('CrossSystem: no primary ticket title or id')
             return self._empty_context(context)
-        all_connectors = await self._load_connectors()
+        user_id = self._safe_str(context.get('engineer_id') or context.get('user_id'))
+        all_connectors = await self._load_connectors(user_id=user_id)
         bug_connectors = [c for c in all_connectors if self._is_bug_source(c)]
         primary_source = primary.get('source_id') or context.get('source_id', '')
         primary_connector = self._find_primary_connector(primary, bug_connectors)
+        if primary_connector is not None:
+            primary['backend_key'] = self._connector_backend_key(primary_connector)
         targets = self._target_connectors(bug_connectors, primary, primary_connector)
         sources_queried = [self._safe_str(getattr(c, 'source_id', '')) for c in targets]
         primary = self._add_primary_reference_variants(primary, bug_connectors)
@@ -87,8 +91,10 @@ class CrossSystemFetchAgent(BaseAgent):
         context['related_issues'] = {'related_tickets': [], 'sources_queried': []}
         return context
 
-    async def _load_connectors(self) -> list:
+    async def _load_connectors(self, user_id: str = '') -> list:
         try:
+            if user_id:
+                return await ConnectorRegistry.get_all_enabled(user_id=user_id)
             return await ConnectorRegistry.get_all_enabled()
         except Exception as e:
             log.warning('CrossSystem connector registry load failed', error=str(e))
@@ -119,19 +125,27 @@ class CrossSystemFetchAgent(BaseAgent):
         return matching_system[0] if len(matching_system) == 1 else None
 
     def _target_connectors(self, connectors: list, primary: dict, primary_connector: Any | None) -> list:
-        primary_source = self._safe_str(primary.get('source_id'))
-        primary_system = self._normalize_system_type(primary.get('system_type') or primary.get('source'))
-        primary_connector_source = self._safe_str(getattr(primary_connector, 'source_id', '')) if primary_connector else ''
-        targets = []
+        targets = {}
         for connector in connectors:
-            source_id = self._safe_str(getattr(connector, 'source_id', ''))
-            system_type = self._normalize_system_type(getattr(connector, 'system_type', ''))
-            if source_id and source_id in {primary_source, primary_connector_source}:
+            key = self._connector_backend_key(connector)
+            current = targets.get(key)
+            if current is None:
+                targets[key] = connector
                 continue
-            if primary_system and system_type == primary_system:
-                continue
-            targets.append(connector)
-        return targets
+            primary_source = self._safe_str(primary.get('source_id'))
+            if self._safe_str(getattr(connector, 'source_id', '')) == primary_source:
+                targets[key] = connector
+        return list(targets.values())
+
+    def _connector_backend_key(self, connector: Any) -> str:
+        cache_key = self._safe_str(getattr(connector, 'cache_key', ''))
+        if cache_key:
+            return cache_key
+        return '|'.join([
+            self._normalize_system_type(getattr(connector, 'system_type', '')),
+            self._safe_str(getattr(connector, 'base_url', '')).lower().rstrip('/'),
+            self._safe_str(getattr(connector, 'project_key', '')).lower(),
+        ])
 
     def _normalize_primary(self, context: dict) -> dict:
         raw = context.get('primary_ticket') or {}
@@ -173,9 +187,11 @@ class CrossSystemFetchAgent(BaseAgent):
                 if not self._reference_matches_connector(ref, connector):
                     continue
                 ticket_id = self._safe_str(ref.get('raw_id') or ref.get('ticket_id') or ref.get('id'))
-                if not ticket_id or self._normalize_ref(ticket_id) == self._normalize_ref(primary.get('ticket_id')):
+                if not ticket_id:
                     continue
-                signals.append({'source_id': source_id, 'source_id_hint': source_id, 'system_type': system_type, 'source': system_type, 'ticket_id': ticket_id, 'id': ticket_id, 'url': self._safe_str(ref.get('url')), 'base_url': self._safe_str(getattr(connector, 'base_url', '')), 'relationship_hint': self._relationship_from_type(ref.get('relationship')), 'provenance': ['outbound_reference'], 'query_used': '', 'raw_reference': self._safe_str(ref.get('raw_reference') or ticket_id), 'signals': [{'provenance': 'outbound_reference', 'relationship_hint': ref.get('relationship'), 'raw_reference': ref.get('raw_reference') or ticket_id, 'url': ref.get('url', '')}]})
+                signal = {'source_id': source_id, 'source_id_hint': source_id, 'system_type': system_type, 'source': system_type, 'ticket_id': ticket_id, 'id': ticket_id, 'url': self._safe_str(ref.get('url')), 'base_url': self._safe_str(getattr(connector, 'base_url', '')), 'backend_key': self._connector_backend_key(connector), 'relationship_hint': self._relationship_from_type(ref.get('relationship')), 'provenance': ['outbound_reference'], 'query_used': '', 'raw_reference': self._safe_str(ref.get('raw_reference') or ticket_id), 'signals': [{'provenance': 'outbound_reference', 'relationship_hint': ref.get('relationship'), 'raw_reference': ref.get('raw_reference') or ticket_id, 'url': ref.get('url', '')}]}
+                if not self._is_primary_match(signal, primary):
+                    signals.append(signal)
         return signals
 
     def _signals_from_native_links(self, primary: dict, targets: list) -> list[dict]:
@@ -276,9 +292,16 @@ class CrossSystemFetchAgent(BaseAgent):
     async def _discover_cache(self, primary: dict, targets: list) -> list[dict]:
         terms = self._candidate_terms(primary) + list(primary.get('reference_variants') or []) + self._rescue_queries(primary)
         allowed_source_ids = {self._safe_str(getattr(c, 'source_id', '')) for c in targets if self._safe_str(getattr(c, 'source_id', ''))}
+        backend_connectors = {self._connector_backend_key(c): c for c in targets}
         try:
             params = inspect.signature(self._scan_redis_cache).parameters
-            if 'allowed_source_ids' in params:
+            if 'allowed_backend_keys' in params:
+                cached = await self._scan_redis_cache(
+                    terms,
+                    allowed_source_ids=allowed_source_ids,
+                    allowed_backend_keys=set(backend_connectors),
+                )
+            elif 'allowed_source_ids' in params:
                 cached = await self._scan_redis_cache(terms, allowed_source_ids=allowed_source_ids)
             else:
                 cached = await self._scan_redis_cache(terms)
@@ -288,7 +311,12 @@ class CrossSystemFetchAgent(BaseAgent):
         signals = []
         for item in cached or []:
             candidate = self._dict_to_candidate(item)
-            if allowed_source_ids and candidate.get('source_id') not in allowed_source_ids:
+            connector = backend_connectors.get(candidate.get('backend_key'))
+            if connector:
+                candidate['source_id'] = self._safe_str(getattr(connector, 'source_id', ''))
+                candidate['system_type'] = self._normalize_system_type(getattr(connector, 'system_type', ''))
+                candidate['source'] = candidate['system_type']
+            elif allowed_source_ids and candidate.get('source_id') not in allowed_source_ids:
                 continue
             candidate['provenance'] = ['redis_cache']
             candidate['relationship_hint'] = 'semantic_similarity'
@@ -296,7 +324,12 @@ class CrossSystemFetchAgent(BaseAgent):
             signals.append(candidate)
         return signals
 
-    async def _scan_redis_cache(self, keywords: list[str], allowed_source_ids: set[str] | None=None) -> list[dict]:
+    async def _scan_redis_cache(
+        self,
+        keywords: list[str],
+        allowed_source_ids: set[str] | None = None,
+        allowed_backend_keys: set[str] | None = None,
+    ) -> list[dict]:
         meaningful = [k.lower() for k in keywords if len(k) > 2 and k.lower() not in GENERIC_WORDS and (k.lower() not in DOMAIN_GENERIC_WORDS)]
         reference_terms = [k.lower() for k in keywords if self._looks_like_reference_query(self._safe_str(k)) or self._safe_str(k).startswith(('http://', 'https://'))]
         phrase_terms = [k.lower() for k in keywords if ' ' in self._safe_str(k) and len(self._safe_str(k)) <= 90 and (not self._safe_str(k).startswith(('http://', 'https://')))]
@@ -319,7 +352,9 @@ class CrossSystemFetchAgent(BaseAgent):
             try:
                 key_text = self._safe_str(key)
                 source_id = self._source_id_from_buglist_key(key_text)
-                if allowed_source_ids and source_id not in allowed_source_ids:
+                if allowed_backend_keys and source_id not in allowed_backend_keys:
+                    continue
+                if not allowed_backend_keys and allowed_source_ids and source_id not in allowed_source_ids:
                     continue
                 val = await r.get(key)
                 data = json.loads(val) if val else None
@@ -329,7 +364,7 @@ class CrossSystemFetchAgent(BaseAgent):
                     if not isinstance(bug, dict):
                         continue
                     bug_source = self._safe_str(bug.get('source_id') or source_id)
-                    if allowed_source_ids and bug_source not in allowed_source_ids:
+                    if not allowed_backend_keys and allowed_source_ids and bug_source not in allowed_source_ids:
                         continue
                     text = f"{bug.get('ticket_id', '')} {bug.get('id', '')} {bug.get('title', '')} {bug.get('description', '')} {bug.get('url', '')}".lower()
                     overlap = sum((1 for kw in meaningful if kw in text))
@@ -339,6 +374,7 @@ class CrossSystemFetchAgent(BaseAgent):
                         continue
                     candidate = dict(bug)
                     candidate['source_id'] = bug_source
+                    candidate['backend_key'] = source_id
                     candidate['overlap_score'] = overlap
                     candidate['reference_match'] = has_reference_match
                     candidate['phrase_match'] = has_phrase_match
@@ -412,20 +448,8 @@ class CrossSystemFetchAgent(BaseAgent):
         return merged
 
     def _prioritize_signals(self, signals: list[dict], limit: int=25) -> list[dict]:
-
-        def priority(signal: dict) -> int:
-            provenance = signal.get('provenance') or []
-            if 'outbound_reference' in provenance or 'context_co_reference' in provenance:
-                return 0
-            if 'reverse_reference_search' in provenance:
-                return 1
-            if 'semantic_live_search' in provenance:
-                return 2
-            if 'redis_cache' in provenance:
-                return 3
-            return 4
         merged: dict[tuple[str, str], dict] = {}
-        for signal in sorted(signals, key=lambda s: (priority(s), -self._signal_quality(s))):
+        for signal in sorted(signals, key=self._signal_quality, reverse=True):
             candidate = self._dict_to_candidate(signal)
             key = self._candidate_key(candidate)
             if not key[1]:
@@ -434,7 +458,7 @@ class CrossSystemFetchAgent(BaseAgent):
                 merged[key] = candidate
             else:
                 merged[key] = self._merge_candidates(merged[key], candidate)
-        prioritized = sorted(merged.values(), key=lambda s: (priority(s), -self._signal_quality(s)))
+        prioritized = sorted(merged.values(), key=self._signal_quality, reverse=True)
         if len(prioritized) > limit:
             log.info('CrossSystem candidate pre-cap', before=len(prioritized), after=limit)
         return prioritized[:limit]
@@ -452,9 +476,6 @@ class CrossSystemFetchAgent(BaseAgent):
         if signal.get('phrase_match'):
             score += 3
         score += min(int(signal.get('overlap_score') or 0), 5)
-        relationship = self._normalize_relationship(signal.get('relationship_hint'))
-        if relationship in {'direct_reference', 'dependency', 'duplicate'}:
-            score += 5
         return score
 
     async def _score_candidates(self, primary: dict, candidates: list[dict]) -> list[dict]:
@@ -484,8 +505,67 @@ class CrossSystemFetchAgent(BaseAgent):
         return scored
 
     async def _score_with_groq(self, primary: dict, candidates: list[dict], api_key: str, model: str) -> list[dict]:
-        payload_candidates = [{'index': idx, 'ticket_id': c.get('ticket_id', ''), 'source_id': c.get('source_id', ''), 'system_type': c.get('system_type', ''), 'title': c.get('title', '')[:180], 'component': c.get('component', '')[:80], 'description': c.get('description', '')[:500], 'relationship_hint': c.get('relationship_hint', ''), 'provenance': c.get('provenance', [])} for idx, c in enumerate(candidates)]
-        prompt = {'task': 'Score cross-system bug relationship candidates.', 'rules': ['Return JSON only.', 'similarity_score must be a float from 0.0 to 1.0, not 0-10 or 0-100.', 'A direct reference is not automatically a duplicate.', 'Only use duplicate for same root cause or same failure in same component/code path.', 'Use dependency only with explicit blocks/depends/fixed-by evidence.', 'Set is_related false for unrelated candidates.', 'High scores require concrete matching fields and a reason that supports the score.'], 'primary': {'ticket_id': primary.get('ticket_id', ''), 'source_id': primary.get('source_id', ''), 'system_type': primary.get('system_type', ''), 'title': primary.get('title', ''), 'component': primary.get('component', ''), 'error_excerpt': primary.get('error_excerpt', '')[:500], 'description': primary.get('description', '')[:800], 'comments': primary.get('comments_text', '')[:500], 'reference_variants': primary.get('reference_variants', [])}, 'candidates': payload_candidates, 'schema': {'results': [{'ticket_id': 'candidate ticket id', 'source_id': 'candidate source id', 'similarity_score': 0.0, 'relationship_type': 'direct_reference|duplicate|dependency|semantic_similarity|unrelated', 'similarity_label': 'Identical|Very Similar|Similar|Possible|Unrelated', 'similarity_reason': 'specific human-readable explanation', 'similarity_matching_fields': ['field names/evidence'], 'is_related': False}]}}
+        payload_candidates = []
+        for idx, candidate in enumerate(candidates):
+            evidence, _ = self._semantic_evidence(primary, candidate)
+            payload_candidates.append({
+                'index': idx,
+                'ticket_id': candidate.get('ticket_id', ''),
+                'source_id': candidate.get('source_id', ''),
+                'system_type': candidate.get('system_type', ''),
+                'title': candidate.get('title', '')[:220],
+                'component': candidate.get('component', '')[:100],
+                'description': candidate.get('description', '')[:800],
+                'relationship_hint': candidate.get('relationship_hint', ''),
+                'discovery_provenance': candidate.get('provenance', []),
+                'deterministic_matching_evidence': evidence[:10],
+            })
+        prompt = {
+            'task': 'Score bug similarity fairly across all enabled systems.',
+            'score_rubric': {
+                '0.00-0.39': 'unrelated',
+                '0.40-0.59': 'weak overlap; not related enough to return',
+                '0.60-0.74': 'meaningfully related',
+                '0.75-0.89': 'strongly related',
+                '0.90-1.00': 'near duplicate with the same failure and root cause',
+            },
+            'rules': [
+                'Return JSON only and score every candidate exactly once.',
+                'similarity_score must be a finite float from 0.0 to 1.0.',
+                'Score only technical similarity; source system and discovery provenance must not affect the score.',
+                'A direct reference is relationship evidence, not automatic semantic similarity.',
+                'Generic words, a common component, or title overlap alone cannot justify a score of 0.60.',
+                'Use duplicate only at 0.90 or above with the same root cause and failure path.',
+                'Use dependency only with explicit blocks, depends-on, caused-by, or fixed-by evidence.',
+                'Write a unique one- or two-sentence reason for each candidate.',
+                'The reason must name concrete shared evidence such as a symptom, error, method, class, file, configuration key, code path, root cause, or fix.',
+                'Explain an important difference when the issues are related but not duplicates.',
+                'Do not copy either title, list generic keywords, or reuse the same reason for multiple candidates.',
+                'Set is_related false below 0.60.',
+            ],
+            'primary': {
+                'ticket_id': primary.get('ticket_id', ''),
+                'source_id': primary.get('source_id', ''),
+                'system_type': primary.get('system_type', ''),
+                'title': primary.get('title', ''),
+                'component': primary.get('component', ''),
+                'error_excerpt': primary.get('error_excerpt', '')[:600],
+                'description': primary.get('description', '')[:1200],
+                'comments': primary.get('comments_text', '')[:600],
+                'reference_variants': primary.get('reference_variants', []),
+            },
+            'candidates': payload_candidates,
+            'schema': {'results': [{
+                'ticket_id': 'candidate ticket id',
+                'source_id': 'candidate source id',
+                'similarity_score': 0.0,
+                'relationship_type': 'direct_reference|duplicate|dependency|semantic_similarity|unrelated',
+                'similarity_label': 'Identical|Very Similar|Similar|Possible|Unrelated',
+                'similarity_reason': 'candidate-specific evidence-based explanation',
+                'similarity_matching_fields': ['exact evidence'],
+                'is_related': False,
+            }]},
+        }
         client = AsyncGroq(api_key=api_key)
         resp = await client.chat.completions.create(model=model, messages=[{'role': 'user', 'content': json.dumps(prompt)}], temperature=0.0, response_format={'type': 'json_object'}, max_tokens=2000)
         raw = resp.choices[0].message.content or '{}'
@@ -503,6 +583,7 @@ class CrossSystemFetchAgent(BaseAgent):
                 result_map[source_id, ticket_id] = item
                 result_map[source_id.upper(), ticket_id] = item
         scored = []
+        seen_reasons = set()
         fallback = {self._candidate_key(c): c for c in self._deterministic_score(primary, candidates)}
         for c in candidates:
             key = self._candidate_key(c)
@@ -527,13 +608,30 @@ class CrossSystemFetchAgent(BaseAgent):
                 if not reason or 'shares matching technical evidence' in reason.lower():
                     reason = deterministic_floor.get('similarity_reason', reason)
                 is_related = True
+            if relationship == 'duplicate' and score < 0.9:
+                relationship = 'semantic_similarity'
+            if score >= 0.9 and len(fields) < 2:
+                score = 0.89
+                if relationship == 'duplicate':
+                    relationship = 'semantic_similarity'
             if self._contradictory(score, reason, relationship, fields, c):
                 deterministic = deterministic_floor
                 score = min(score, deterministic.get('similarity_score', 0.0), 0.49)
-                relationship = 'semantic_similarity' if score >= self.DIRECT_REFERENCE_THRESHOLD else 'unrelated'
-                reason = reason or 'Model output was contradictory; downgraded because evidence was insufficient.'
-                is_related = score >= self.DIRECT_REFERENCE_THRESHOLD and self._has_direct_signal(c)
-            enriched.update({'similarity_score': round(score, 2), 'relevance_score': round(score, 2), 'relationship_type': relationship, 'similarity_label': self._label(score, relationship), 'similarity_reason': reason or self._fallback_reason(primary, c, relationship), 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'is_related': is_related})
+                relationship = 'unrelated'
+                is_related = False
+            reason_candidate = dict(c)
+            reason_candidate['similarity_matching_fields'] = fields
+            reason_key = self._reason_fingerprint(reason)
+            if (
+                not self._reason_is_specific(reason, primary, reason_candidate, fields)
+                or (reason_key and reason_key in seen_reasons)
+            ):
+                reason = self._fallback_reason(primary, reason_candidate, relationship)
+                reason_key = self._reason_fingerprint(reason)
+            if reason_key:
+                seen_reasons.add(reason_key)
+            is_related = relationship != 'unrelated' and score >= self.SEMANTIC_THRESHOLD
+            enriched.update({'similarity_score': round(score, 2), 'relevance_score': round(score, 2), 'relationship_type': relationship, 'similarity_label': self._label(score, relationship), 'similarity_reason': reason, 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'is_related': is_related})
             scored.append(enriched)
         return scored
 
@@ -546,53 +644,32 @@ class CrossSystemFetchAgent(BaseAgent):
         candidate_terms = set(self._candidate_terms(candidate))
         overlap = sorted(primary_terms & candidate_terms)
         semantic_fields, semantic_score = self._semantic_evidence(primary, candidate)
-        has_direct = self._has_direct_signal(c)
-        has_reverse = 'reverse_reference_search' in (c.get('provenance') or [])
         relationship = self._normalize_relationship(c.get('relationship_hint'))
-        if relationship == 'dependency':
-            score = 0.72 if has_direct else 0.6
-        elif has_direct:
-            score = 0.68
-        elif has_reverse:
-            score = 0.62
-        elif overlap:
-            score = min(0.35 + 0.08 * len(overlap), 0.62)
-            relationship = 'semantic_similarity'
-        elif 'redis_cache' in (c.get('provenance') or []) and c.get('overlap_score', 0):
-            score = min(0.45 + 0.03 * int(c.get('overlap_score') or 0), 0.62)
-            relationship = 'semantic_similarity'
-        else:
-            score = 0.18
-            relationship = 'unrelated'
+        score = semantic_score or {
+            0: 0.18,
+            1: 0.38,
+            2: 0.48,
+            3: 0.56,
+        }.get(min(len(overlap), 4), 0.62)
         strong_identifiers = self._strong_identifier_overlap(primary, candidate)
-        if strong_identifiers:
-            score = max(score, 0.74 if has_direct or has_reverse else 0.58)
-            if relationship == 'semantic_similarity' and (has_direct or has_reverse):
-                relationship = 'direct_reference'
-        if semantic_score:
-            score = max(score, semantic_score)
-            if semantic_score >= 0.8 and relationship == 'semantic_similarity':
-                relationship = 'duplicate'
+        semantic_fields = self._unique(semantic_fields + strong_identifiers[:4])
         if c.get('phrase_match'):
-            score = max(score, 0.74)
-        if relationship == 'duplicate' and score < 0.8:
+            score = max(score, 0.64)
+        if relationship == 'duplicate' and score < 0.9:
             relationship = 'semantic_similarity'
-        if relationship == 'unrelated':
-            score = min(score, 0.3)
-        if c.get('provenance') == ['redis_cache']:
-            if c.get('reference_match'):
-                score = min(score, 0.8)
-            elif c.get('phrase_match'):
-                score = min(score, 0.74)
-            else:
-                score = min(score, 0.52)
+        if relationship == 'dependency' and not self._has_direct_signal(c):
+            relationship = 'semantic_similarity'
+        if c.get('provenance') == ['redis_cache'] and not semantic_score:
+            score = min(score, 0.52)
+        if score < 0.4 and relationship == 'semantic_similarity':
+            relationship = 'unrelated'
         c['similarity_score'] = round(min(score, 0.95), 2)
         c['relevance_score'] = c['similarity_score']
         c['relationship_type'] = relationship
         c['similarity_label'] = self._label(c['similarity_score'], relationship)
-        c['similarity_matching_fields'] = self._unique(semantic_fields + overlap[:6] + strong_identifiers[:4])
+        c['similarity_matching_fields'] = self._unique(semantic_fields + overlap[:6])
         c['similarity_reason'] = self._fallback_reason(primary, c, relationship)
-        c['is_related'] = relationship != 'unrelated' and (c['similarity_score'] >= self.SEMANTIC_THRESHOLD or (self._has_direct_signal(c) and c['similarity_score'] >= self.DIRECT_REFERENCE_THRESHOLD))
+        c['is_related'] = relationship != 'unrelated' and c['similarity_score'] >= self.SEMANTIC_THRESHOLD
         return c
 
     def _finalize_candidates(self, candidates: list[dict], primary: dict) -> list[dict]:
@@ -601,16 +678,11 @@ class CrossSystemFetchAgent(BaseAgent):
             n = self._normalize_candidate(c)
             if self._is_primary_match(n, primary):
                 continue
-            if self._is_same_system_candidate(n, primary):
-                continue
             relationship = n.get('relationship_type')
             score = n.get('similarity_score', 0.0)
             if relationship == 'unrelated':
                 continue
-            if relationship in {'direct_reference', 'dependency'}:
-                if score < self.DIRECT_REFERENCE_THRESHOLD:
-                    continue
-            elif score < self.SEMANTIC_THRESHOLD:
+            if score < self.SEMANTIC_THRESHOLD:
                 continue
             key = self._final_dedupe_key(n)
             if not key[1]:
@@ -642,7 +714,7 @@ class CrossSystemFetchAgent(BaseAgent):
         fields = raw.get('similarity_matching_fields') or []
         if not isinstance(fields, list):
             fields = []
-        return {'id': display_id, 'ticket_id': display_id, 'title': self._safe_str(raw.get('title') or raw.get('summary') or raw.get('name')), 'url': url, 'status': self._safe_str(raw.get('status') or raw.get('state') or 'unknown').lower(), 'source': system_type, 'source_id': source_id, 'system_type': system_type, 'description': self._safe_str(raw.get('description') or raw.get('body'))[:300], 'relevance_score': round(score, 2), 'similarity_score': round(score, 2), 'similarity_label': self._safe_str(raw.get('similarity_label')) or self._label(score, relationship), 'similarity_reason': reason, 'relationship_type': relationship, 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'raw_key': self._safe_str(raw.get('raw_key') or raw.get('key') or ticket_id), 'provenance': raw.get('provenance') or []}
+        return {'id': display_id, 'ticket_id': display_id, 'title': self._safe_str(raw.get('title') or raw.get('summary') or raw.get('name')), 'url': url, 'status': self._safe_str(raw.get('status') or raw.get('state') or 'unknown').lower(), 'source': system_type, 'source_id': source_id, 'system_type': system_type, 'description': self._safe_str(raw.get('description') or raw.get('body'))[:300], 'relevance_score': round(score, 2), 'similarity_score': round(score, 2), 'similarity_label': self._safe_str(raw.get('similarity_label')) or self._label(score, relationship), 'similarity_reason': reason, 'relationship_type': relationship, 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'raw_key': self._safe_str(raw.get('raw_key') or raw.get('key') or ticket_id), 'backend_key': self._safe_str(raw.get('backend_key')), 'provenance': raw.get('provenance') or []}
 
     def _ticket_to_candidate(self, item: Any, connector: Any | None=None) -> dict:
         if dataclasses.is_dataclass(item):
@@ -656,6 +728,7 @@ class CrossSystemFetchAgent(BaseAgent):
             data.setdefault('source_id', self._safe_str(getattr(connector, 'source_id', '')))
             data.setdefault('system_type', self._safe_str(getattr(connector, 'system_type', '')))
             data.setdefault('base_url', self._safe_str(getattr(connector, 'base_url', '')))
+            data.setdefault('backend_key', self._connector_backend_key(connector))
         return self._dict_to_candidate(data)
 
     def _dict_to_candidate(self, data: dict) -> dict:
@@ -664,7 +737,7 @@ class CrossSystemFetchAgent(BaseAgent):
         ticket_id = self._safe_str(data.get('ticket_id') or data.get('id') or data.get('key') or data.get('number'))
         system_type = self._normalize_system_type(data.get('system_type') or data.get('source') or '')
         source_id = self._safe_str(data.get('source_id') or data.get('source_id_hint') or data.get('source') or system_type)
-        candidate = {'ticket_id': ticket_id, 'id': ticket_id, 'raw_key': self._safe_str(data.get('raw_key') or data.get('key')), 'source_id': source_id, 'source': system_type, 'system_type': system_type, 'title': self._safe_str(data.get('title') or data.get('summary') or data.get('name')), 'description': self._safe_str(data.get('description') or data.get('body')), 'status': self._safe_str(data.get('status') or data.get('state') or 'unknown'), 'component': self._safe_str(data.get('component') or ''), 'url': self._safe_str(data.get('url') or data.get('html_url') or data.get('link')), 'base_url': self._safe_str(data.get('base_url') or ''), 'relationship_hint': self._normalize_relationship(data.get('relationship_hint') or data.get('relationship_type') or data.get('relationship')), 'provenance': data.get('provenance') if isinstance(data.get('provenance'), list) else [], 'signals': data.get('signals') if isinstance(data.get('signals'), list) else [], 'overlap_score': data.get('overlap_score', 0), 'reference_match': bool(data.get('reference_match')), 'phrase_match': bool(data.get('phrase_match'))}
+        candidate = {'ticket_id': ticket_id, 'id': ticket_id, 'raw_key': self._safe_str(data.get('raw_key') or data.get('key')), 'source_id': source_id, 'source': system_type, 'system_type': system_type, 'title': self._safe_str(data.get('title') or data.get('summary') or data.get('name')), 'description': self._safe_str(data.get('description') or data.get('body')), 'status': self._safe_str(data.get('status') or data.get('state') or 'unknown'), 'component': self._safe_str(data.get('component') or ''), 'url': self._safe_str(data.get('url') or data.get('html_url') or data.get('link')), 'base_url': self._safe_str(data.get('base_url') or ''), 'backend_key': self._safe_str(data.get('backend_key') or ''), 'relationship_hint': self._normalize_relationship(data.get('relationship_hint') or data.get('relationship_type') or data.get('relationship')), 'provenance': data.get('provenance') if isinstance(data.get('provenance'), list) else [], 'signals': data.get('signals') if isinstance(data.get('signals'), list) else [], 'overlap_score': data.get('overlap_score', 0), 'reference_match': bool(data.get('reference_match')), 'phrase_match': bool(data.get('phrase_match'))}
         for key in ('similarity_score', 'relevance_score'):
             if data.get(key) is not None:
                 candidate[key] = self._coerce_score(data.get(key))
@@ -692,7 +765,7 @@ class CrossSystemFetchAgent(BaseAgent):
         for c in matching:
             source_id = self._safe_str(getattr(c, 'source_id', ''))
             ctype = self._safe_str(getattr(c, 'system_type', ''))
-            signals.append({'source_id': source_id, 'source_id_hint': source_id, 'system_type': ctype, 'source': ctype, 'ticket_id': self._safe_str(ticket_id), 'id': self._safe_str(ticket_id), 'url': url, 'base_url': self._safe_str(getattr(c, 'base_url', '')), 'relationship_hint': relationship_hint, 'provenance': [provenance], 'query_used': '', 'raw_reference': raw_reference, 'signals': [{'provenance': provenance, 'relationship_hint': relationship_hint, 'raw_reference': raw_reference, 'url': url}]})
+            signals.append({'source_id': source_id, 'source_id_hint': source_id, 'system_type': ctype, 'source': ctype, 'ticket_id': self._safe_str(ticket_id), 'id': self._safe_str(ticket_id), 'url': url, 'base_url': self._safe_str(getattr(c, 'base_url', '')), 'backend_key': self._connector_backend_key(c), 'relationship_hint': relationship_hint, 'provenance': [provenance], 'query_used': '', 'raw_reference': raw_reference, 'signals': [{'provenance': provenance, 'relationship_hint': relationship_hint, 'raw_reference': raw_reference, 'url': url}]})
         return signals
 
     async def _semantic_queries(self, primary: dict) -> list[str]:
@@ -913,25 +986,19 @@ class CrossSystemFetchAgent(BaseAgent):
             score = float(value)
         except Exception:
             return 0.0
-        if score < 0:
+        if not math.isfinite(score) or score < 0 or score > 1:
             return 0.0
-        if score <= 1.0:
-            return round(score, 2)
-        if score <= 10.0:
-            return round(score / 10.0, 2)
-        if score <= 100.0:
-            return round(score / 100.0, 2)
-        return 0.0
+        return round(score, 2)
 
     def _contradictory(self, score: float, reason: str, relationship: str, fields: list, candidate: dict) -> bool:
         reason_l = self._safe_str(reason).lower()
         if score >= 0.75 and any((word in reason_l for word in UNRELATED_WORDS)):
             return True
-        if relationship == 'duplicate' and score < 0.75:
+        if relationship == 'duplicate' and score < 0.9:
             return True
         if relationship == 'dependency' and (not (self._has_direct_signal(candidate) or any(('depend' in self._safe_str(f).lower() or 'block' in self._safe_str(f).lower() for f in fields)))):
             return True
-        if score >= 0.85 and (not fields) and (not reason_l) and (not self._has_direct_signal(candidate)):
+        if score >= 0.8 and not fields:
             return True
         return False
 
@@ -959,55 +1026,87 @@ class CrossSystemFetchAgent(BaseAgent):
         return 'Identical' if score >= 0.9 else 'Very Similar' if score >= 0.8 else 'Similar' if score >= 0.6 else 'Possible'
 
     def _fallback_reason(self, primary: dict, candidate: dict, relationship: str) -> str:
-        provenance = ', '.join(candidate.get('provenance') or [])
-        fields = candidate.get('similarity_matching_fields') or []
-        evidence = self._reason_evidence(primary, candidate, fields)
-        shared_configs = evidence.get('shared_configs', [])
-        candidate_configs = evidence.get('candidate_configs', [])
-        shared_phrase = evidence.get('shared_phrase', '')
-        shared_terms = evidence.get('shared_terms', [])
-        field_text = ', '.join((shared_configs + candidate_configs + shared_terms)[:5])
+        primary_id = self._safe_str(primary.get('ticket_id') or 'the primary issue')
+        candidate_id = self._safe_str(candidate.get('ticket_id') or 'the candidate')
+        evidence = self._reason_evidence(
+            primary, candidate, candidate.get('similarity_matching_fields') or []
+        )
+        shared_identifiers = evidence['shared_identifiers']
+        shared_terms = evidence['shared_terms']
+        shared_phrase = evidence['shared_phrase']
+        shared_component = evidence['shared_component']
+        identifier_text = ', '.join(f'`{value}`' for value in shared_identifiers[:3])
+        term_text = ', '.join(shared_terms[:4])
         if relationship == 'dependency':
-            return 'The issues have an explicit dependency or blocking relationship.'
+            detail = identifier_text or term_text or 'the documented failure path'
+            return f'{candidate_id} has an explicit dependency relationship with {primary_id}; the connection is supported by shared evidence in {detail}.'
         if relationship == 'direct_reference':
-            if field_text:
-                return f'One issue explicitly references the other, with shared evidence: {field_text}.'
-            return 'One issue explicitly references the other across systems.'
-        if shared_configs:
-            return f'Both issues involve the same Spark configuration key `{shared_configs[0]}` and the same missing log-directory failure mode.'
-        if candidate_configs:
-            return f'The candidate is related through Spark log-directory configuration `{candidate_configs[0]}`, but it does not match the exact primary config key.'
+            if identifier_text or term_text:
+                detail = identifier_text or term_text
+                return f'{candidate_id} explicitly references {primary_id}, and both descriptions contain concrete matching evidence in {detail}.'
+            return f'{candidate_id} explicitly references {primary_id}, but the available candidate text does not contain enough technical detail to claim a duplicate.'
+        if shared_identifiers:
+            suffix = f' Their descriptions also align on {term_text}.' if term_text else ''
+            return f'{candidate_id} and {primary_id} involve the same technical identifier {identifier_text}.{suffix}'
+        if shared_component and len(shared_terms) >= 2:
+            return f'{candidate_id} and {primary_id} affect `{shared_component}` and share the concrete failure vocabulary {term_text}, indicating the same technical area.'
         if shared_phrase:
-            return f'Both issues describe the same history/log-directory behavior: {shared_phrase}.'
-        if shared_terms:
-            return 'Both issues share technical terms around ' + ', '.join(shared_terms[:4]) + ', but the exact failure mode needs confirmation.'
-        if provenance:
-            return f'The candidate was discovered via {provenance}, but only weak structured evidence was available.'
-        return 'The candidate has related technical terms but insufficient evidence for a stronger label.'
+            return f'{candidate_id} and {primary_id} independently describe the same technical behavior, `{shared_phrase}`, with matching implementation context.'
+        if len(shared_terms) >= 2:
+            return f'{candidate_id} overlaps with {primary_id} on {term_text}; the available text supports related behavior but not an identical root cause.'
+        return f'{candidate_id} was discovered as a possible match for {primary_id}, but its available text lacks enough concrete evidence for a stronger similarity claim.'
 
     def _reason_evidence(self, primary: dict, candidate: dict, fields: list) -> dict:
-        primary_text = self._combined_text(primary).lower()
-        candidate_text = self._combined_text(candidate).lower()
-        primary_configs = sorted(set(re.findall('\\bspark\\.[a-z0-9_.]+\\b', primary_text)))
-        candidate_configs = sorted(set(re.findall('\\bspark\\.[a-z0-9_.]+\\b', candidate_text)))
-        shared_configs = sorted(set(primary_configs) & set(candidate_configs))
-        primary_config_set = set(primary_configs)
-        candidate_only_configs = [c for c in candidate_configs if c not in primary_config_set]
+        primary_identifiers = {
+            value.lower(): value for value in self._technical_identifiers(primary)
+        }
+        candidate_identifiers = {
+            value.lower(): value for value in self._technical_identifiers(candidate)
+        }
+        shared_identifiers = [
+            primary_identifiers[key]
+            for key in sorted(primary_identifiers.keys() & candidate_identifiers.keys())
+        ]
         primary_phrases = set(self._technical_phrases(primary))
         candidate_phrases = set(self._technical_phrases(candidate))
         shared_phrases = sorted(primary_phrases & candidate_phrases)
+        shared_terms = sorted(
+            set(self._candidate_terms(primary)) & set(self._candidate_terms(candidate))
+        )
+        shared_terms.extend(self._safe_str(field) for field in fields)
         noisy = {'https', 'http', 'issues', 'exist', 'does', 'start', 'created', 'creating', 'automatically'}
-        shared_terms = [self._safe_str(f) for f in fields if self._safe_str(f) and self._safe_str(f).lower() not in noisy and (not self._safe_str(f).lower().startswith('http'))]
-        return {'shared_configs': shared_configs, 'candidate_configs': candidate_only_configs, 'shared_phrase': shared_phrases[0] if shared_phrases else '', 'shared_terms': self._unique(shared_terms)}
+        shared_terms = [
+            term for term in self._unique(shared_terms)
+            if term.lower() not in noisy
+            and not term.lower().startswith(('http', '#'))
+            and term.lower() not in {value.lower() for value in shared_identifiers}
+        ]
+        primary_component = self._safe_str(primary.get('component')).strip()
+        candidate_component = self._safe_str(candidate.get('component')).strip()
+        shared_component = primary_component if (
+            primary_component
+            and candidate_component
+            and primary_component.lower() == candidate_component.lower()
+        ) else ''
+        return {
+            'shared_identifiers': shared_identifiers,
+            'shared_phrase': shared_phrases[0] if shared_phrases else '',
+            'shared_terms': shared_terms,
+            'shared_component': shared_component,
+        }
 
     def _semantic_evidence(self, primary: dict, candidate: dict) -> tuple[list[str], float]:
-        primary_text = self._combined_text(primary)
-        candidate_text = self._combined_text(candidate)
-        fields: list[str] = []
-        primary_configs = {c.lower() for c in re.findall('\\bspark\\.[A-Za-z0-9_.]+\\b', primary_text)}
-        candidate_configs = {c.lower() for c in re.findall('\\bspark\\.[A-Za-z0-9_.]+\\b', candidate_text)}
-        shared_configs = sorted(primary_configs & candidate_configs)
-        fields.extend(shared_configs)
+        primary_identifiers = {
+            value.lower(): value for value in self._technical_identifiers(primary)
+        }
+        candidate_identifiers = {
+            value.lower(): value for value in self._technical_identifiers(candidate)
+        }
+        shared_identifiers = [
+            primary_identifiers[key]
+            for key in sorted(primary_identifiers.keys() & candidate_identifiers.keys())
+        ]
+        fields: list[str] = list(shared_identifiers)
         primary_title_tokens = self._important_tokens(primary.get('title', ''))
         candidate_title_tokens = self._important_tokens(candidate.get('title', ''))
         shared_title = sorted(primary_title_tokens & candidate_title_tokens)
@@ -1017,23 +1116,66 @@ class CrossSystemFetchAgent(BaseAgent):
         title_ratio = len(shared_title) / len(title_union) if title_union else 0.0
         primary_phrases = set(self._technical_phrases(primary))
         candidate_phrases = set(self._technical_phrases(candidate))
-        primary_phrases.update(self._config_phrase_queries(list(primary_configs)))
-        candidate_phrases.update(self._config_phrase_queries(list(candidate_configs)))
         shared_phrases = sorted(primary_phrases & candidate_phrases)
         fields.extend(shared_phrases[:3])
-        if shared_configs and title_ratio >= 0.35:
-            return (self._unique(fields), 0.82)
-        if shared_configs and len(shared_title) >= 2:
+        primary_component = self._safe_str(primary.get('component')).strip().lower()
+        candidate_component = self._safe_str(candidate.get('component')).strip().lower()
+        same_component = bool(primary_component and primary_component == candidate_component)
+        if len(shared_identifiers) >= 2 and len(shared_title) >= 2:
+            return (self._unique(fields), 0.86)
+        if shared_identifiers and (shared_phrases or len(shared_title) >= 2):
             return (self._unique(fields), 0.8)
-        if shared_phrases and len(shared_title) >= 2:
-            return (self._unique(fields), 0.8)
-        if shared_phrases and title_ratio >= 0.3:
-            return (self._unique(fields), 0.74)
-        if title_ratio >= 0.55 and len(shared_title) >= 3:
+        if shared_identifiers and shared_title:
+            return (self._unique(fields), 0.76)
+        if shared_phrases and len(shared_title) >= 3:
             return (self._unique(fields), 0.72)
-        if shared_configs:
+        if title_ratio >= 0.65 and len(shared_title) >= 4:
             return (self._unique(fields), 0.68)
+        if same_component and len(shared_title) >= 4:
+            fields.append(primary.get('component'))
+            return (self._unique(fields), 0.64)
+        if shared_identifiers:
+            return (self._unique(fields), 0.58)
         return (self._unique(fields), 0.0)
+
+    def _technical_identifiers(self, item: dict) -> list[str]:
+        text = self._combined_text(item)
+        values = []
+        values.extend(re.findall(r'\b[A-Z][A-Za-z0-9]*(?:Exception|Error|Failure|Fault)\b', text))
+        values.extend(re.findall(r'\b[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*){2,}\b', text))
+        values.extend(re.findall(r'\b[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)?\(\)', text))
+        values.extend(re.findall(r'\b[\w.-]+\.(?:java|py|js|ts|xml|yml|yaml|json|gradle|properties|conf)\b', text, re.IGNORECASE))
+        values.extend(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][A-Za-z0-9]+)+\b', text))
+        return self._unique([
+            value for value in values
+            if not value.lower().startswith(('http.', 'https.'))
+            and value.lower() not in DOMAIN_GENERIC_WORDS
+        ])[:20]
+
+    def _reason_fingerprint(self, reason: str) -> str:
+        text = self._safe_str(reason).lower()
+        text = re.sub(r'\b(?:[a-z][a-z0-9]+-\d+|(?:gh|bz)-?\d+|#\d+)\b', '', text)
+        return ' '.join(re.findall(r'[a-z0-9_.]+', text))
+
+    def _reason_is_specific(self, reason: str, primary: dict, candidate: dict, fields: list) -> bool:
+        text = self._safe_str(reason).strip()
+        lower = text.lower()
+        if len(text.split()) < 12:
+            return False
+        vague = (
+            'shares matching technical evidence',
+            'related issue candidate',
+            'these issues are related',
+            'similar to the primary issue',
+        )
+        if any(phrase in lower for phrase in vague):
+            return False
+        candidate_title = self._safe_str(candidate.get('title')).strip().lower()
+        if len(candidate_title) >= 20 and candidate_title in lower:
+            return False
+        evidence = self._reason_evidence(primary, candidate, fields)
+        concrete = evidence['shared_identifiers'] + evidence['shared_terms'][:6]
+        return any(self._safe_str(value).lower() in lower for value in concrete)
 
     def _important_tokens(self, text: Any) -> set[str]:
         tokens = set()
@@ -1074,19 +1216,16 @@ class CrossSystemFetchAgent(BaseAgent):
         return self._unique(matches)
 
     def _candidate_key(self, item: dict) -> tuple[str, str]:
-        source_id = self._safe_str(item.get('source_id') or item.get('source') or item.get('system_type'))
-        return (source_id.upper(), self._normalize_ref(item.get('ticket_id') or item.get('id') or item.get('key')))
+        identity = self._safe_str(item.get('backend_key') or item.get('source_id') or item.get('source') or item.get('system_type'))
+        return (identity.upper(), self._normalize_ref(item.get('ticket_id') or item.get('id') or item.get('key')))
 
     def _final_dedupe_key(self, item: dict) -> tuple[str, str]:
-        system_type = self._normalize_system_type(item.get('system_type') or item.get('source'))
-        source_id = self._safe_str(item.get('source_id')).upper()
+        identity = self._safe_str(item.get('backend_key') or item.get('source_id') or item.get('source') or item.get('system_type')).upper()
         ref = self._normalize_ref(item.get('raw_key') or item.get('ticket_id') or item.get('id') or item.get('key'))
-        if re.match('^[A-Z][A-Z0-9]+-\\d+$', ref):
-            return ('JIRA', ref)
-        return (system_type.upper() or source_id, ref)
+        return (identity, ref)
 
-    def _candidate_sort_key(self, item: dict) -> tuple[int, float]:
-        return (self._relationship_rank(item.get('relationship_type')), float(item.get('similarity_score') or 0.0))
+    def _candidate_sort_key(self, item: dict) -> tuple[float]:
+        return (float(item.get('similarity_score') or 0.0),)
 
     def _score_lookup_keys(self, item: dict) -> list[tuple[str, str]]:
         source_id = self._safe_str(item.get('source_id') or item.get('source') or item.get('system_type'))
@@ -1100,18 +1239,24 @@ class CrossSystemFetchAgent(BaseAgent):
         candidate_refs = {self._normalize_ref(candidate.get(k)) for k in ('ticket_id', 'id', 'raw_key')}
         primary_refs.discard('')
         candidate_refs.discard('')
-        if primary_refs & candidate_refs:
+        primary_url = self._safe_str(primary.get('url')).lower().rstrip('/')
+        candidate_url = self._safe_str(candidate.get('url')).lower().rstrip('/')
+        if primary_url and candidate_url and primary_url == candidate_url:
             return True
-        primary_title = self._safe_str(primary.get('title')).strip().lower()
-        candidate_title = self._safe_str(candidate.get('title')).strip().lower()
-        return bool(primary_title and candidate_title and (primary_title == candidate_title))
-
-    def _is_same_system_candidate(self, candidate: dict, primary: dict) -> bool:
         primary_system = self._normalize_system_type(primary.get('system_type') or primary.get('source'))
         candidate_system = self._normalize_system_type(candidate.get('system_type') or candidate.get('source'))
-        if not primary_system or not candidate_system:
-            return False
-        return primary_system == candidate_system
+        same_backend = bool(
+            primary.get('backend_key')
+            and candidate.get('backend_key')
+            and primary.get('backend_key') == candidate.get('backend_key')
+        )
+        same_source = bool(
+            primary.get('source_id')
+            and candidate.get('source_id')
+            and primary.get('source_id') == candidate.get('source_id')
+        )
+        same_jira_key = primary_system == candidate_system == 'jira'
+        return bool(primary_refs & candidate_refs) and (same_backend or same_source or same_jira_key)
 
     def _normalize_ref(self, value: Any) -> str:
         text = self._safe_str(value).strip().upper()

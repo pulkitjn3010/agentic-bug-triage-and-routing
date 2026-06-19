@@ -205,3 +205,156 @@ async def test_get_bugs_filters_by_jira_source(monkeypatch):
     assert len(bugs) == 1
     assert bugs[0]["ticket_id"] == "100"
     assert bugs[0]["system_type"] == "jira_apache"
+
+
+@pytest.mark.asyncio
+async def test_get_bugs_deduplicates_global_and_user_backend_aliases(monkeypatch):
+    import api_gateway.services.bug_service as bug_service
+
+    calls = []
+
+    class FakeConnector:
+        system_type = "jira"
+        project_key = "SPARK"
+        display_name = "Apache Spark JIRA"
+        base_url = "https://issues.apache.org/jira"
+        cache_key = "shared-jira-backend"
+
+        def __init__(self, source_id, owner_id):
+            self.source_id = source_id
+            self.owner_id = owner_id
+
+        async def search_open_bugs(self, status, severity, max_results):
+            calls.append(self.source_id)
+            return [{
+                "ticket_id": "SPARK-1",
+                "title": "History server failure",
+                "severity": "P1",
+                "status": "open",
+            }]
+
+    connectors = [
+        FakeConnector("apache-spark-jira", None),
+        FakeConnector("engineer@example.com-apache-spark-jira", "engineer@example.com"),
+    ]
+
+    async def get_connectors(user_id=None):
+        return connectors
+
+    async def no_cache(*args, **kwargs):
+        return None
+
+    async def ignore_cache_write(*args, **kwargs):
+        return None
+
+    async def assemble(raw_bugs, db, user_id=None):
+        return {"ungrouped": raw_bugs, "groups": []}
+
+    class EmptyResult:
+        def all(self):
+            return []
+
+    class FakeDb:
+        async def execute(self, *args, **kwargs):
+            return EmptyResult()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return FakeDb()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(ConnectorRegistry, "get_all_enabled", get_connectors)
+    monkeypatch.setattr(bug_service, "get_cached_buglist", no_cache)
+    monkeypatch.setattr(bug_service, "cache_buglist", ignore_cache_write)
+    monkeypatch.setattr(bug_service, "assemble_grouped_bug_list", assemble)
+    monkeypatch.setattr(bug_service, "AsyncSessionLocal", lambda: FakeSession())
+
+    result = await get_bugs(
+        page=1,
+        page_size=10,
+        search="",
+        severity="",
+        source="",
+        status="",
+        sort_field="severity",
+        sort_order="desc",
+        user_id="engineer@example.com",
+    )
+
+    assert calls == ["engineer@example.com-apache-spark-jira"]
+    assert result["total"] == 1
+    assert [bug["ticket_id"] for bug in result["bugs"]] == ["SPARK-1"]
+
+
+@pytest.mark.asyncio
+async def test_get_bugs_keeps_same_numeric_id_from_different_backends(monkeypatch):
+    import api_gateway.services.bug_service as bug_service
+
+    class FakeConnector:
+        display_name = "Source"
+        project_key = "PROJECT"
+        base_url = "https://example.test"
+        owner_id = "engineer@example.com"
+
+        def __init__(self, source_id, system_type, cache_key):
+            self.source_id = source_id
+            self.system_type = system_type
+            self.cache_key = cache_key
+
+        async def search_open_bugs(self, status, severity, max_results):
+            return [{"ticket_id": "123", "title": self.source_id, "status": "open"}]
+
+    connectors = [
+        FakeConnector("github-source", "github", "github-backend"),
+        FakeConnector("bugzilla-source", "bugzilla", "bugzilla-backend"),
+    ]
+
+    async def get_connectors(user_id=None):
+        return connectors
+
+    async def no_cache(*args, **kwargs):
+        return None
+
+    async def assemble(raw_bugs, db, user_id=None):
+        return {"ungrouped": raw_bugs, "groups": []}
+
+    class EmptyResult:
+        def all(self):
+            return []
+
+    class FakeDb:
+        async def execute(self, *args, **kwargs):
+            return EmptyResult()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return FakeDb()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(ConnectorRegistry, "get_all_enabled", get_connectors)
+    monkeypatch.setattr(bug_service, "get_cached_buglist", no_cache)
+    monkeypatch.setattr(bug_service, "cache_buglist", no_cache)
+    monkeypatch.setattr(bug_service, "assemble_grouped_bug_list", assemble)
+    monkeypatch.setattr(bug_service, "AsyncSessionLocal", lambda: FakeSession())
+
+    result = await get_bugs(
+        page=1,
+        page_size=10,
+        search="",
+        severity="",
+        source="",
+        status="",
+        sort_field="severity",
+        sort_order="desc",
+        user_id="engineer@example.com",
+    )
+
+    assert result["total"] == 2
+    assert {bug["source_id"] for bug in result["bugs"]} == {
+        "github-source",
+        "bugzilla-source",
+    }
