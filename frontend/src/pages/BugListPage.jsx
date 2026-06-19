@@ -4,6 +4,7 @@ import { getBugs, getBugStatus, refreshBugCache, getMetrics } from '../api/bugs'
 import { startTriage } from '../api/triage'
 import { getConnections } from '../api/settings'
 import { useBugListCache } from '../context/BugListCacheContext'
+//import { clearHistoryCache } from './HistoryPage'
 
 const toPercent = (score) => {
   if (score == null) return 0
@@ -24,6 +25,27 @@ function SevBadge({ sev }) {
 
 function SrcBadge({ type }) {
   return <span className={`sb ${SRC_CLS[type] || 'sb-jira'}`}>{SRC_LBL[type] || (type || '?').toUpperCase().slice(0, 4)}</span>
+}
+
+const InfoIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
+function InfoTooltip({ text, position = '', align = '' }) {
+  return (
+    <span className="tooltip-wrap">
+      <span className="tooltip-icon">
+        <InfoIcon />
+      </span>
+      <span className={`tooltip-box ${position} ${align}`}>
+        {text}
+      </span>
+    </span>
+  )
 }
 
 function getSourceType(item = {}) {
@@ -187,8 +209,8 @@ function StatusBadge({ status, loading, error }) {
 }
 
 function ExpandableBugRow({ bug, onTriage, triaging, navigate }) {
-  const [expanded,      setExpanded]      = useState(false)
-  const [status,        setStatus]        = useState(null)
+  const [expanded, setExpanded] = useState(false)
+  const [status, setStatus] = useState(null)
   const [statusLoading, setStatusLoading] = useState(false)
 
   const handleExpand = async () => {
@@ -264,13 +286,13 @@ function GroupTreeRow({ group, onTriage, triaging, navigate, onRetriage }) {
 
   const sourceType = getSourceType(root)
   const rootUrl = root.url || ''
-  
+
   const triage = root.triage_info || {}
   const isTriaged = root.is_triaged || false
   const toPercent = (s) => s == null ? 0 : s > 1 ? Math.min(Math.round(s), 100) : Math.min(Math.round(s * 100), 100)
   const confPct = triage.confidence != null ? toPercent(triage.confidence) : null
   const caseIdShort = triage.id ? `BT-${String(triage.id).padStart(3, '0')}` : triage.case_id ? `BT-${triage.case_id.slice(0, 6).toUpperCase()}` : 'BT-?'
-  
+
   const triageTimeMs = new Date(triage.triaged_at).getTime()
   const isExpired = !isNaN(triageTimeMs) && (Date.now() - triageTimeMs > 120000)
 
@@ -583,7 +605,7 @@ function TriagedBugRow({ bug, onRetriage, retriaging, navigate }) {
                 )}
               </div>
             )}
-            
+
             {children.length > 0 && children.map((child, idx) => {
               const childSource = getSourceType(child)
               const childUrl = child.url || ''
@@ -621,32 +643,32 @@ const bugsCache = {};
 
 export default function BugListPage() {
   const { cache: bugListCache, updateCache: updateBugListCache } = useBugListCache()
-  const navigate      = useNavigate()
-  const intervalRef   = useRef(null)
-  const pollCountRef  = useRef(0)
-  const [bugs,          setBugs]          = useState([])
-  const [groups,        setGroups]        = useState([])
-  const [flatRows,      setFlatRows]      = useState([])
-  const [total,         setTotal]         = useState(0)
-  const [page,          setPage]          = useState(1)
-  const [pageInput,     setPageInput]     = useState('')
-  const [loading,       setLoading]       = useState(true)
-  const [searchInput,   setSearchInput]   = useState('')
-  const [search,        setSearch]        = useState('')
-  const [severity,      setSeverity]      = useState('')
-  const [source,        setSource]        = useState('')
-  const [status,        setStatus]        = useState('')
-  const [project,       setProject]       = useState('')
-  const [projects,      setProjects]      = useState([])
-  const [activePill,    setActivePill]    = useState('All')
-  const [triagingId,    setTriagingId]    = useState(null)
-  const [lastSynced,    setLastSynced]    = useState(() => bugListCache.lastSynced ? new Date(bugListCache.lastSynced) : null)
-  const [directBugId,   setDirectBugId]  = useState('')
-  const [refreshing,    setRefreshing]    = useState(false)
+  const navigate = useNavigate()
+  const intervalRef = useRef(null)
+  const pollCountRef = useRef(0)
+  const [bugs, setBugs] = useState([])
+  const [groups, setGroups] = useState([])
+  const [flatRows, setFlatRows] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageInput, setPageInput] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [severity, setSeverity] = useState('')
+  const [source, setSource] = useState('')
+  const [status, setStatus] = useState('')
+  const [project, setProject] = useState('')
+  const [projects, setProjects] = useState([])
+  const [activePill, setActivePill] = useState('All')
+  const [triagingId, setTriagingId] = useState(null)
+  const [lastSynced, setLastSynced] = useState(() => bugListCache.lastSynced ? new Date(bugListCache.lastSynced) : null)
+  const [directBugId, setDirectBugId] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
   const [sourcesOnline, setSourcesOnline] = useState(() => bugListCache.sourcesOnline || 0)
-  const [isPartial,     setIsPartial]     = useState(() => bugListCache.isPartial || false)
-  const [cacheStatus,   setCacheStatus]   = useState(() => bugListCache.cacheStatus || null)
-  const [metrics,       setMetrics]       = useState(null)
+  const [isPartial, setIsPartial] = useState(() => bugListCache.isPartial || false)
+  const [cacheStatus, setCacheStatus] = useState(() => bugListCache.cacheStatus || null)
+  const [metrics, setMetrics] = useState(null)
 
   useEffect(() => {
     getConnections()
@@ -810,11 +832,13 @@ export default function BugListPage() {
 
   const handleTriage = async (bugOrId, forceRefresh = false) => {
     // Accept either a full bug object { ticket_id, source_id } or a plain string (direct triage bar)
-    const bugId    = typeof bugOrId === 'string' ? bugOrId : bugOrId.ticket_id
+    const bugId = typeof bugOrId === 'string' ? bugOrId : bugOrId.ticket_id
     const sourceId = typeof bugOrId === 'string' ? '' : (bugOrId.source_id || '')
     setTriagingId(bugId)
     try {
       const data = await startTriage(bugId, sourceId, forceRefresh)
+      // clearBugsCache()
+      // clearHistoryCache()
       navigate(`/triage/${data.case_id}`)
     } catch (e) {
       alert('Failed to start triage: ' + (e.response?.data?.detail || e.message))
@@ -826,7 +850,7 @@ export default function BugListPage() {
   const handleRefresh = async () => {
     setRefreshing(true)
     try { await refreshBugCache() } catch { /* ignore */ }
-    
+
     // Invalidate caches
     for (const k in bugsCache) delete bugsCache[k]
 
@@ -843,12 +867,12 @@ export default function BugListPage() {
   })
   const visibleFlatRows = flatRows.filter((b) => matchesPill(b, activePill))
 
-  const triaged  = bugs.filter((b) => b.is_triaged).length
+  const triaged = bugs.filter((b) => b.is_triaged).length
   const awaiting = bugs.length - triaged
-  const start    = (page - 1) * 50 + 1
-  const end      = Math.min((page - 1) * 50 + bugs.length, total)
+  const start = (page - 1) * 50 + 1
+  const end = Math.min((page - 1) * 50 + bugs.length, total)
 
-  const triagedBugs   = visibleFlatRows.filter((b) => b.is_triaged)
+  const triagedBugs = visibleFlatRows.filter((b) => b.is_triaged)
   const untriagedBugs = visibleFlatRows.filter((b) => !b.is_triaged)
   const hasVisibleRows = visibleGroups.length > 0 || visibleFlatRows.length > 0
 
@@ -986,6 +1010,16 @@ export default function BugListPage() {
         >
           {triagingId === directBugId.trim() ? '…' : 'Triage'}
         </button>
+        <InfoTooltip 
+          text={
+            <ul className="tooltip-list">
+              <li><strong>Targeted Triage:</strong> Enter a specific ticket ID (e.g., <code>SPARK-56871</code>) from JIRA, GitHub, or Bugzilla to run an instant analysis.</li>
+              <li><strong>Agent Actions:</strong> The system fetches full ticket context, searches duplicates, and retrieves Confluence runbooks.</li>
+              <li><strong>Completion Time:</strong> Analysis takes approximately 30-40 seconds to process.</li>
+            </ul>
+          } 
+          align="align-left"
+        />
       </div>
 
       {/* Legend bar */}
@@ -1125,16 +1159,16 @@ export default function BugListPage() {
       {total > 10 && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Previous</button>
-          
+
           {(() => {
             const totalPages = Math.ceil(total / 10)
             const pages = []
-            
+
             for (let i = 1; i <= totalPages; i++) {
               if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
                 pages.push(
-                  <button 
-                    key={i} 
+                  <button
+                    key={i}
                     className={`btn btn-sm ${page === i ? 'btn-teal' : 'btn-ghost'}`}
                     onClick={() => setPage(i)}
                     style={{ minWidth: 32, padding: '4px 8px' }}
@@ -1148,14 +1182,14 @@ export default function BugListPage() {
             }
             return <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>{pages}</div>
           })()}
-          
+
           <button className="btn btn-ghost btn-sm" onClick={() => setPage((p) => Math.min(Math.ceil(total / 10), p + 1))} disabled={page >= Math.ceil(total / 10)}>Next</button>
-          
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 16, borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
             <span style={{ fontSize: 13, color: 'var(--text2)' }}>Go to:</span>
-            <input 
-              type="number" 
-              className="form-input" 
+            <input
+              type="number"
+              className="form-input"
               style={{ width: 60, padding: '4px 8px', fontSize: 13 }}
               value={pageInput}
               onChange={(e) => setPageInput(e.target.value)}

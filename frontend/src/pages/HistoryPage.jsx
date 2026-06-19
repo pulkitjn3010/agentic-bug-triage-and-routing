@@ -11,6 +11,27 @@ let historyCache = {
   lastFetched: 0,
 }
 
+const InfoIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
+function InfoTooltip({ text, position = '', align = '' }) {
+  return (
+    <span className="tooltip-wrap">
+      <span className="tooltip-icon">
+        <InfoIcon />
+      </span>
+      <span className={`tooltip-box ${position} ${align}`}>
+        {text}
+      </span>
+    </span>
+  )
+}
+
 function confColor(val) {
   if (val >= 0.8) return 'var(--green)'
   if (val >= 0.6) return 'var(--amber)'
@@ -84,9 +105,21 @@ export default function HistoryPage() {
 
   return (
     <div>
-      <div className="page-hdr">
-        <h1>Triage History</h1>
-        <p>Recent pipeline completions · last 50</p>
+      <div className="page-hdr" style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <h1 style={{ margin: 0 }}>Triage History</h1>
+          <InfoTooltip 
+            text={
+              <ul className="tooltip-list">
+                <li><strong>Recent Runs:</strong> Logs the last 50 completed agentic triage runs.</li>
+                <li><strong>Integrations Alert:</strong> If connected systems count is less than 2, some trackers are offline, and related duplicates from those sources cannot be fetched.</li>
+                <li><strong>Fresh Run:</strong> Click <strong>Re-triage</strong> at any time to run a new analysis on the latest tracker data.</li>
+              </ul>
+            } 
+            align="align-left"
+          />
+        </div>
+        <p style={{ marginTop: 4 }}>Recent pipeline completions · last 50</p>
       </div>
 
       {error && (

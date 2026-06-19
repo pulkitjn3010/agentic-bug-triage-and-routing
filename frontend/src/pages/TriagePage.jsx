@@ -24,6 +24,28 @@ function SevBadge({ sev }) {
   return <span className={`sev ${SEV_CLS[sev] || 'sev-unk'}`}>{sev || 'UNK'}</span>
 }
 
+const InfoIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
+function InfoTooltip({ text, position = '', align = '' }) {
+  return (
+    <span className="tooltip-wrap">
+      <span className="tooltip-icon">
+        <InfoIcon />
+      </span>
+      <span className={`tooltip-box ${position} ${align}`}>
+        {text}
+      </span>
+    </span>
+  )
+}
+
+
 function signalLabel(source) {
   const s = (source || '').toLowerCase()
   if (s.includes('hacker')) return 'Hacker News Signal'
@@ -182,7 +204,16 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
         <div className="panel teal-t">
           <div className="panel-hdr">
             <div className="panel-num pn-teal">01</div>
-            <span className="panel-title">Bug Context</span>
+            <span className="panel-title" style={{ display: 'flex', alignItems: 'center' }}>
+              Bug Context
+              <InfoTooltip text={
+                <ul className="tooltip-list">
+                  <li><strong>Live Sync:</strong> Ticket details fetched in real-time from the active connector.</li>
+                  <li><strong>Metadata:</strong> Component, assignee, reporter, status, and description fields.</li>
+                  <li><strong>Signals:</strong> Public comments, linked items, and custom user cases.</li>
+                </ul>
+              } />
+            </span>
             {srcType && <SrcBadge type={srcType} />}
           </div>
           <div className="panel-body scroll">
@@ -340,7 +371,16 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
         <div className="panel blue-t">
           <div className="panel-hdr">
             <div className="panel-num pn-blue">02</div>
-            <span className="panel-title">Related Issues</span>
+            <span className="panel-title" style={{ display: 'flex', alignItems: 'center' }}>
+              Related Issues
+              <InfoTooltip text={
+                <ul className="tooltip-list">
+                  <li><strong>Duplicate Check:</strong> Finds duplicate bug candidates across all trackers.</li>
+                  <li><strong>Matching Score:</strong> Confidence level based on semantic text similarities.</li>
+                  <li><strong>Referenced:</strong> Highlight cases explicitly linked inside the ticket logs.</li>
+                </ul>
+              } />
+            </span>
             {(() => {
               const tickets = (related.related_tickets || []).filter(
                 (t) => (t.relevance_score || t.similarity_score || 0) >= 0.5
@@ -456,7 +496,16 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
         <div className="panel amber-t">
           <div className="panel-hdr">
             <div className="panel-num pn-amber">03</div>
-            <span className="panel-title">Knowledge Base</span>
+            <span className="panel-title" style={{ display: 'flex', alignItems: 'center' }}>
+              Knowledge Base
+              <InfoTooltip text={
+                <ul className="tooltip-list">
+                  <li><strong>Runbooks:</strong> Queries Confluence pages for matching troubleshooting procedures.</li>
+                  <li><strong>AI Relevance:</strong> Evaluates matching score (High/Medium/Low).</li>
+                  <li><strong>Quick Access:</strong> Click any article title to open the page.</li>
+                </ul>
+              } />
+            </span>
             <span className="panel-badge pb-amber">{linked.kb_articles?.length || 0} results</span>
           </div>
           <div className="panel-body scroll">
@@ -521,7 +570,16 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
         <div className="panel purple-t">
           <div className="panel-hdr">
             <div className="panel-num pn-purple">04</div>
-            <span className="panel-title">AI Summary</span>
+            <span className="panel-title" style={{ display: 'flex', alignItems: 'center' }}>
+              AI Summary
+              <InfoTooltip text={
+                <ul className="tooltip-list">
+                  <li><strong>Classification:</strong> Synthesized P0-P3 severity assessment and reasoning.</li>
+                  <li><strong>Root Cause:</strong> AI-analyzed root cause based on codebase context.</li>
+                  <li><strong>Next Steps:</strong> Recommended actions and routing target teams.</li>
+                </ul>
+              } />
+            </span>
             {conf > 0 && <span className="panel-badge pb-purple">{conf.toFixed(0)}% confidence</span>}
           </div>
           <div className="panel-body scroll">
