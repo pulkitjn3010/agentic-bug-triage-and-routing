@@ -98,7 +98,12 @@ class JiraConnector(BaseConnector):
         )
 
         components = fields.get("components") or []
-        component = components[0].get("name", "") if components else ""
+        component_names = [
+            str(item.get("name") or "").strip()
+            for item in components
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ]
+        component = ", ".join(dict.fromkeys(component_names))
 
         assignee = (fields.get("assignee") or {}).get("displayName") or ""
         reporter = (fields.get("reporter") or {}).get("displayName") or ""
