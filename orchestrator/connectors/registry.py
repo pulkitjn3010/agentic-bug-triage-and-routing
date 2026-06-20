@@ -148,12 +148,11 @@ class ConnectorRegistry:
             await load_connectors_from_db()
             
         if user_id:
-            eligible = [
+            return [
                 c
                 for c in _connector_cache
-                if getattr(c, "owner_id", None) in (user_id, None)
+                if getattr(c, "owner_id", None) == user_id
             ]
-            return _deduplicate_logical_connectors(eligible, user_id=user_id)
         return _connector_cache
 
     @classmethod
