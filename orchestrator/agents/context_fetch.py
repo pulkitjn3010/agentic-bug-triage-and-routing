@@ -210,11 +210,7 @@ class ContextFetchAgent(BaseAgent):
         context["customer_signals"] = customer_cases
         context["customer_signal_errors"] = customer_signal_errors
         context["source_references"] = source_references
-        context["components"] = [
-            component.strip()
-            for component in (ticket.component or "").split(",")
-            if component.strip()
-        ]
+        context["components"] = [ticket.component] if ticket.component else []
         context["source_id"] = connector.source_id
         context["direct_reference_links"] = getattr(
             ticket, "direct_reference_links", []
