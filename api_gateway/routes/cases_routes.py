@@ -156,14 +156,14 @@ async def _fetch_buglist_for_connector(
         severity: str,
         max_results: int) -> dict:
     
-    lock_key = f"{connector.source_id}:{status}:{severity}"
+    lock_key = f"{connector.cache_key}:{status}:{severity}"
     if lock_key not in _FETCH_LOCKS:
         _FETCH_LOCKS[lock_key] = asyncio.Lock()
-        
+
     async with _FETCH_LOCKS[lock_key]:
         # Check cache inside the lock to prevent stampede
         cached = await get_cached_buglist(
-            connector.source_id, status, severity)
+            connector.cache_key, status, severity)
         if cached is not None:
             return {
                 "source_id": connector.source_id,
@@ -186,7 +186,7 @@ async def _fetch_buglist_for_connector(
                 for ticket in (tickets or [])
             ]
             await cache_buglist(
-                connector.source_id, status, severity, bugs,
+                connector.cache_key, status, severity, bugs,
                 ttl=REDIS_TTL_BUGLIST_SECONDS)
             return {
                 "source_id": connector.source_id,
@@ -277,13 +277,18 @@ async def get_bugs(
 
 @router.post("/bugs/warm")
 async def warm_bug_cache(user: User = Depends(get_current_user)):
-    connectors = await ConnectorRegistry.get_all_enabled(user_id=user.user_id)
-    grouped = {}
+    connectors = await ConnectorRegistry.get_all_enabled()
+    excluded = {"confluence", "customer_portal"}
+
+    # Group by cache_key so connectors sharing a backend fetch once
+    grouped_connectors = {}
     for c in connectors:
-        if c.is_bug_source:
-            grouped.setdefault(c.cache_key, []).append(c)
-    for c_list in grouped.values():
-        asyncio.create_task(_background_fetch_connector(c_list))
+        if c.system_type not in excluded:
+            grouped_connectors.setdefault(c.cache_key, []).append(c)
+
+    for group in grouped_connectors.values():
+        asyncio.create_task(_background_fetch_connector(group))
+
     return {
         "status": "warming",
         "connectors": len(connectors),

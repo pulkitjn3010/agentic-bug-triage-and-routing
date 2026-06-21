@@ -52,6 +52,23 @@ def get_connector_class(system_type: str):
     return SYSTEM_TYPE_TO_CLASS.get((system_type or "").strip().lower())
 
 
+def _deduplicate_logical_connectors(
+    connectors: list[BaseConnector], user_id: str | None = None
+) -> list[BaseConnector]:
+    """Return one connector per backend, preferring the user's override."""
+    unique: dict[str, BaseConnector] = {}
+    for connector in connectors:
+        key = getattr(connector, "cache_key", "") or connector.source_id
+        current = unique.get(key)
+        if current is None:
+            unique[key] = connector
+            continue
+        if user_id and getattr(connector, "owner_id", None) == user_id:
+            if getattr(current, "owner_id", None) != user_id:
+                unique[key] = connector
+    return list(unique.values())
+
+
 def set_token_provider(provider: TokenProvider) -> None:
     global _token_provider, _connector_cache, _connector_cache_ts
     _token_provider = provider
@@ -131,7 +148,11 @@ class ConnectorRegistry:
             await load_connectors_from_db()
             
         if user_id:
-            return [c for c in _connector_cache if getattr(c, "owner_id", None) == user_id]
+            return [
+                c
+                for c in _connector_cache
+                if getattr(c, "owner_id", None) == user_id
+            ]
         return _connector_cache
 
     @classmethod

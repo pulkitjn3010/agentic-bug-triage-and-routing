@@ -233,3 +233,36 @@ def test_health_check_all_returns_status_per_enabled_connector(monkeypatch):
     assert statuses[1]["status"] == "disconnected"
     assert statuses[1]["ok"] is False
     assert "health exploded" in statuses[1]["error"]
+
+
+def test_user_override_replaces_global_connector_for_same_backend(monkeypatch):
+    install_fake_source_registry(
+        monkeypatch,
+        [
+            SourceRow(
+                "apache-spark-jira",
+                "jira",
+                "SPARK",
+                base_url="https://issues.apache.org/jira",
+                project_key="SPARK",
+                owner_id=None,
+            ),
+            SourceRow(
+                "engineer@example.com-apache-spark-jira",
+                "jira",
+                "SPARK",
+                base_url="https://issues.apache.org/jira",
+                project_key="SPARK",
+                owner_id="engineer@example.com",
+            ),
+        ],
+    )
+    install_fake_connectors(monkeypatch)
+
+    connectors = run(
+        registry.ConnectorRegistry.get_all_enabled(user_id="engineer@example.com")
+    )
+
+    assert [connector.source_id for connector in connectors] == [
+        "engineer@example.com-apache-spark-jira"
+    ]

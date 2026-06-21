@@ -14,6 +14,7 @@ from orchestrator.db.repositories.source_registry import (
 )
 from orchestrator.connectors.registry import ConnectorRegistry, SYSTEM_TYPE_TO_CLASS
 from ..services import connection_service
+from ..services.connection_service import _format_source
 
 router = APIRouter(tags=["settings"])
 
