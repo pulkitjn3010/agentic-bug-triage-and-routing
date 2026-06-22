@@ -112,7 +112,6 @@ export default function HistoryPage() {
             text={
               <ul className="tooltip-list">
                 <li><strong>Recent Runs:</strong> Logs the last 50 completed agentic triage runs.</li>
-                <li><strong>Integrations Alert:</strong> If connected systems count is less than 2, some trackers are offline, and related duplicates from those sources cannot be fetched.</li>
                 <li><strong>Fresh Run:</strong> Click <strong>Re-triage</strong> at any time to run a new analysis on the latest tracker data.</li>
               </ul>
             } 
