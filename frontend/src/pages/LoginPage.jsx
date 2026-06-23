@@ -8,11 +8,20 @@ const AsteriskSvg = () => (
   </svg>
 )
 
+const InfoIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
 export default function LoginPage() {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
+  const [showTooltip, setShowTooltip] = useState(false)
   const { login } = useAuth()
   const navigate  = useNavigate()
 
@@ -32,7 +41,26 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <div className="login-card">
+      <div className="login-card" style={{ position: 'relative' }}>
+        <button
+          type="button"
+          className="login-info-btn"
+          onClick={() => setShowTooltip(!showTooltip)}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          title="Show credentials info"
+        >
+          <InfoIcon />
+        </button>
+
+        {showTooltip && (
+          <div className="login-tooltip">
+            <p>Demo credentials</p>
+            <span>your_name@hpe.com</span>
+            <span>password123 (engineer)</span>
+          </div>
+        )}
+
         <div className="login-logo-wrap">
           <div className="login-logo-box">
             <AsteriskSvg />
@@ -77,11 +105,6 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
-
-        <div className="login-demo">
-          <p>Demo credentials</p>
-          <span>disha@hpe.com / password123 (engineer)</span>
-        </div>
       </div>
     </div>
   )

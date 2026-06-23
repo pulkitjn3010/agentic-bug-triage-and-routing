@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import TopBar from './TopBar'
+import HelpDrawer from '../components/HelpDrawer'
 
 export default function AppLayout() {
   return (
@@ -8,6 +9,7 @@ export default function AppLayout() {
       <main className="page">
         <Outlet />
       </main>
+      <HelpDrawer />
     </div>
   )
 }
