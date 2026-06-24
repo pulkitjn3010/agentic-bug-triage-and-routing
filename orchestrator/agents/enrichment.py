@@ -49,18 +49,18 @@ class EnrichmentAgent(BaseAgent):
     step_name = "enrichment"
 
     SOURCE_SPACE_MAP = {
-        "apache-flink": "FLINK",
-        "flink": "FLINK",
-        "apache-spark": "SPARK",
-        "spark": "SPARK",
-        "kafka": "KAFKA",
-        "apache-kafka": "KAFKA",
+        "apache-flink": "HPEKB",
+        "flink": "HPEKB",
+        "apache-spark": "HPEKB",
+        "spark": "HPEKB",
+        "kafka": "HPEKB",
+        "apache-kafka": "HPEKB",
         "hpe": "HPEKB",
         "hpekb": "HPEKB",
-        "hadoop": "HADOOP",
-        "apache-hadoop": "HADOOP",
-        "zookeeper": "ZOOKEEPER",
-        "apache-zookeeper": "ZOOKEEPER",
+        "hadoop": "HPEKB",
+        "apache-hadoop": "HPEKB",
+        "zookeeper": "HPEKB",
+        "apache-zookeeper": "HPEKB",
     }
     DEFAULT_SPACE = "HPEKB"
 
@@ -85,7 +85,7 @@ class EnrichmentAgent(BaseAgent):
         if files_desc:
             return files_desc[0][1:]
 
-        # Rule 2: CamelCase word
+        # Rule 2: UpperCamelCase word (title first, then description)
         camel_pat = r"\b[A-Z][a-z]+[A-Z][a-zA-Z]+\b"
         camel = re.findall(camel_pat, ticket_title)
         if camel:
@@ -103,7 +103,32 @@ class EnrichmentAgent(BaseAgent):
         if exc_desc:
             return exc_desc[0]
 
-        # Rule 4: fallback using component prefix
+        # Rule 4: dot-notation config property (e.g. spark.history.fs.logDirectory)
+        dot_pat = r"\b[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*){2,}\b"
+        dot = re.findall(dot_pat, ticket_title)
+        if dot:
+            return dot[0]
+        dot_desc = re.findall(dot_pat, desc_snippet)
+        if dot_desc:
+            return dot_desc[0]
+
+        # Rule 5: lowerCamelCase identifier (e.g. logDirectory, eventLog)
+        lower_camel_pat = r"\b[a-z]+[A-Z][a-zA-Z]+\b"
+        lower_camel = re.findall(lower_camel_pat, ticket_title)
+        if lower_camel:
+            return lower_camel[0]
+        lower_camel_desc = re.findall(lower_camel_pat, desc_snippet)
+        if lower_camel_desc:
+            return lower_camel_desc[0]
+
+        # Rule 6: fallback — stop-word filtered title words + component prefix
+        stop_words = {
+            "the", "a", "an", "in", "of", "to", "is", "are", "for", "on",
+            "at", "by", "with", "from", "that", "this", "not", "and", "or",
+            "if", "does", "can", "will", "do", "be", "was", "were", "has",
+            "have", "it", "its", "as", "but", "when", "how", "why", "what",
+            "which", "who", "also",
+        }
         comp_prefix = ""
         if component:
             parts = re.findall(r"\w+", component)
@@ -111,9 +136,11 @@ class EnrichmentAgent(BaseAgent):
                 comp_prefix = parts[0].lower() + " "
 
         words = [w.strip(".,()[]\"'") for w in ticket_title.split()]
+        meaningful = [w for w in words if w.lower() not in stop_words and w]
+        query_words = meaningful[:4] if meaningful else words[:4]
         if comp_prefix:
-            return comp_prefix + " ".join(words[:3])
-        return " ".join(words[:4])
+            return comp_prefix + " ".join(query_words[:3])
+        return " ".join(query_words)
 
 
 
@@ -153,7 +180,7 @@ class EnrichmentAgent(BaseAgent):
             total=len(all_articles),
         )
 
-        context["kb_articles"] = all_articles[:6]
+        context["kb_articles"] = all_articles[:5]
         context["enrichment_sources"] = all_articles
         return context
 
@@ -273,9 +300,11 @@ class EnrichmentAgent(BaseAgent):
                     raw = raw.strip("```json").strip("```").strip()
                     try:
                         parsed = json.loads(raw)
-                        return parsed if isinstance(parsed, list) else []
+                        if isinstance(parsed, list) and parsed:
+                            return parsed
+                        return seen_articles if seen_articles else []
                     except Exception:
-                        return []
+                        return seen_articles if seen_articles else []
 
                 if "Action: search_confluence" in reply and "Action Input:" in reply:
                     query = (
