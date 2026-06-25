@@ -74,11 +74,18 @@ class EnrichmentAgent(BaseAgent):
     def _extract_initial_query(
         self, ticket_title: str, ticket_description: str, component: str = ""
     ) -> str:
-        desc_snippet = (ticket_description or "")[:300]
+        # Clean URLs and emails to prevent matching domain names/hosts as dot-notation properties
+        clean_title = re.sub(r"https?://\S+", " ", ticket_title or "")
+        clean_title = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", " ", clean_title)
+        
+        clean_desc = re.sub(r"https?://\S+", " ", ticket_description or "")
+        clean_desc = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", " ", clean_desc)
+
+        desc_snippet = clean_desc[:300]
 
         # Rule 1: file extension pattern
-        file_pat = r"\.[\w]+(?:rc|config|yml|yaml|json|js|ts|xml|toml)"
-        files = re.findall(file_pat, ticket_title)
+        file_pat = r"\.[\w]*(?:rc|config|yml|yaml|json|js|ts|xml|toml)\b"
+        files = re.findall(file_pat, clean_title)
         if files:
             return files[0][1:]
         files_desc = re.findall(file_pat, desc_snippet)
@@ -87,7 +94,7 @@ class EnrichmentAgent(BaseAgent):
 
         # Rule 2: UpperCamelCase word (title first, then description)
         camel_pat = r"\b[A-Z][a-z]+[A-Z][a-zA-Z]+\b"
-        camel = re.findall(camel_pat, ticket_title)
+        camel = re.findall(camel_pat, clean_title)
         if camel:
             return camel[0]
         camel_desc = re.findall(camel_pat, desc_snippet)
@@ -96,25 +103,32 @@ class EnrichmentAgent(BaseAgent):
 
         # Rule 3: Exception/Error/Failure suffix
         exc_pat = r"\b\w+(?:Exception|Error|Failure)\b"
-        exc = re.findall(exc_pat, ticket_title)
+        exc = re.findall(exc_pat, clean_title)
         if exc:
             return exc[0]
         exc_desc = re.findall(exc_pat, desc_snippet)
         if exc_desc:
             return exc_desc[0]
 
+        # Helper to ignore hostname domains matched as dot-notation properties
+        def is_domain(s: str) -> bool:
+            tlds = (".com", ".org", ".net", ".edu", ".gov", ".io", ".co", ".info", ".us", ".uk", ".in")
+            return any(s.lower().endswith(tld) for tld in tlds)
+
         # Rule 4: dot-notation config property (e.g. spark.history.fs.logDirectory)
         dot_pat = r"\b[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*){2,}\b"
-        dot = re.findall(dot_pat, ticket_title)
+        dot = re.findall(dot_pat, clean_title)
+        dot = [d for d in dot if not is_domain(d)]
         if dot:
             return dot[0]
         dot_desc = re.findall(dot_pat, desc_snippet)
+        dot_desc = [d for d in dot_desc if not is_domain(d)]
         if dot_desc:
             return dot_desc[0]
 
         # Rule 5: lowerCamelCase identifier (e.g. logDirectory, eventLog)
         lower_camel_pat = r"\b[a-z]+[A-Z][a-zA-Z]+\b"
-        lower_camel = re.findall(lower_camel_pat, ticket_title)
+        lower_camel = re.findall(lower_camel_pat, clean_title)
         if lower_camel:
             return lower_camel[0]
         lower_camel_desc = re.findall(lower_camel_pat, desc_snippet)
@@ -135,7 +149,14 @@ class EnrichmentAgent(BaseAgent):
             if parts:
                 comp_prefix = parts[0].lower() + " "
 
-        words = [w.strip(".,()[]\"'") for w in ticket_title.split()]
+        # Split words properly, stripping mid-bracket configurations (e.g. [SPARK-57415][SQL])
+        words = []
+        raw_words = re.findall(r"\b\w+(?:-\w+)*\b", ticket_title)
+        for w in raw_words:
+            w_clean = w.strip(".,()[]\"'")
+            if w_clean:
+                words.append(w_clean)
+
         meaningful = [w for w in words if w.lower() not in stop_words and w]
         query_words = meaningful[:4] if meaningful else words[:4]
         if comp_prefix:
