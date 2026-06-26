@@ -14,44 +14,33 @@ log = structlog.get_logger()
 
 MAX_REACT_ITERS = 4
 
-# Map source_id family to Apache Confluence space keys
-SOURCE_TO_SPACE = {
-    "spark": "SPARK",
-    "kafka": "KAFKA",
-    "flink": "FLINK",
-    "hadoop": "HADOOP",
-    "hive": "HIVE",
-    "hbase": "HBASE",
-    "zookeeper": "ZOOKEEPER",
-    "cassandra": "CASSANDRA",
-    "airflow": "AIRFLOW",
-}
-
-SYSTEM_PROMPT = """You are a technical documentation \
-specialist in a strict ReAct loop.
+SYSTEM_PROMPT = """You are a technical documentation specialist in a strict ReAct loop.
 Find the most relevant troubleshooting articles for the bug.
 
 Tools:
 Action: search_confluence
 Action Input: <2-4 word query>
 
+Action: search_stackoverflow
+Action Input: <2-4 word query>
+
 Rules:
+- Use search_confluence for: config files, Apache docs, internal KB, deployment guides
+- Use search_stackoverflow for: exceptions, code errors, runtime failures, JVM issues
 - Use DEVELOPER vocabulary not formal descriptions
-- Apache projects: use "apache-rat", "checkstyle",
-  "rat plugin", "license header", "eslintrc"
+- Apache projects: use "apache-rat", "checkstyle", "rat plugin", "license header", "eslintrc"
 - JVM issues: use class name + exception type
 - Config issues: use exact filename
 - If search returns nothing, try a different angle
-- Maximum 4 searches
+- Maximum 4 searches total across both sources
 
 Format:
 Thought: <reasoning>
-Action: search_confluence
+Action: search_confluence OR search_stackoverflow
 Action Input: <query>
 
 OR:
-Final Answer: [{"title":"...","url":"...",
-"excerpt":"...","relevance":"high|medium|low"}]
+Final Answer: [{"title":"...","url":"...","excerpt":"...","relevance":"high|medium|low","source":"confluence|stackoverflow"}]
 
 Always provide Final Answer even if empty."""
 
@@ -60,32 +49,20 @@ class EnrichmentAgent(BaseAgent):
     step_name = "enrichment"
 
     SOURCE_SPACE_MAP = {
-        "apache-flink": "FLINK",
-        "flink": "FLINK",
-        "apache-spark": "SPARK",
-        "spark": "SPARK",
-        "kafka": "KAFKA",
-        "apache-kafka": "KAFKA",
+        "apache-flink": "HPEKB",
+        "flink": "HPEKB",
+        "apache-spark": "HPEKB",
+        "spark": "HPEKB",
+        "kafka": "HPEKB",
+        "apache-kafka": "HPEKB",
         "hpe": "HPEKB",
         "hpekb": "HPEKB",
-        "hadoop": "HADOOP",
-        "apache-hadoop": "HADOOP",
-        "zookeeper": "ZOOKEEPER",
-        "apache-zookeeper": "ZOOKEEPER",
+        "hadoop": "HPEKB",
+        "apache-hadoop": "HPEKB",
+        "zookeeper": "HPEKB",
+        "apache-zookeeper": "HPEKB",
     }
     DEFAULT_SPACE = "HPEKB"
-
-    def _get_family(self, source_id: str) -> str:
-        s = source_id.lower()
-        for p in ["apache-", "mozilla-", "microsoft-", "kubernetes-"]:
-            s = s.replace(p, "")
-        for sx in ["-jira", "-github", "-bugzilla"]:
-            s = s.replace(sx, "")
-        return s.strip("-")
-
-    def _get_target_space(self, source_id: str) -> str:
-        family = self._get_family(source_id)
-        return SOURCE_TO_SPACE.get(family, "HPEKB")
 
     def _resolve_target_space(self, source_id: str) -> str:
         s = source_id.lower().rstrip("0123456789-")
@@ -94,27 +71,97 @@ class EnrichmentAgent(BaseAgent):
                 return space
         return self.DEFAULT_SPACE
 
-    def _extract_initial_query(self, ticket_title: str, ticket_description: str) -> str:
+    def _extract_initial_query(
+        self, ticket_title: str, ticket_description: str, component: str = ""
+    ) -> str:
+        # Clean URLs and emails to prevent matching domain names/hosts as dot-notation properties
+        clean_title = re.sub(r"https?://\S+", " ", ticket_title or "")
+        clean_title = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", " ", clean_title)
+        
+        clean_desc = re.sub(r"https?://\S+", " ", ticket_description or "")
+        clean_desc = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", " ", clean_desc)
+
+        desc_snippet = clean_desc[:300]
+
         # Rule 1: file extension pattern
-        files = re.findall(
-            r"\.[\w]+(?:rc|config|yml|yaml|json|js|ts|xml|toml)", ticket_title
-        )
+        file_pat = r"\.[\w]*(?:rc|config|yml|yaml|json|js|ts|xml|toml)\b"
+        files = re.findall(file_pat, clean_title)
         if files:
             return files[0][1:]
+        files_desc = re.findall(file_pat, desc_snippet)
+        if files_desc:
+            return files_desc[0][1:]
 
-        # Rule 2: CamelCase word
-        camel = re.findall(r"\b[A-Z][a-z]+[A-Z][a-zA-Z]+\b", ticket_title)
+        # Rule 2: UpperCamelCase word (title first, then description)
+        camel_pat = r"\b[A-Z][a-z]+[A-Z][a-zA-Z]+\b"
+        camel = re.findall(camel_pat, clean_title)
         if camel:
             return camel[0]
+        camel_desc = re.findall(camel_pat, desc_snippet)
+        if camel_desc:
+            return camel_desc[0]
 
         # Rule 3: Exception/Error/Failure suffix
-        exc = re.findall(r"\b\w+(?:Exception|Error|Failure)\b", ticket_title)
+        exc_pat = r"\b\w+(?:Exception|Error|Failure)\b"
+        exc = re.findall(exc_pat, clean_title)
         if exc:
             return exc[0]
+        exc_desc = re.findall(exc_pat, desc_snippet)
+        if exc_desc:
+            return exc_desc[0]
 
-        # Rule 4: first 4 words of title
-        words = [w.strip(".,()[]\"'") for w in ticket_title.split()]
-        return " ".join(words[:4])
+        # Helper to ignore hostname domains matched as dot-notation properties
+        def is_domain(s: str) -> bool:
+            tlds = (".com", ".org", ".net", ".edu", ".gov", ".io", ".co", ".info", ".us", ".uk", ".in")
+            return any(s.lower().endswith(tld) for tld in tlds)
+
+        # Rule 4: dot-notation config property (e.g. spark.history.fs.logDirectory)
+        dot_pat = r"\b[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*){2,}\b"
+        dot = re.findall(dot_pat, clean_title)
+        dot = [d for d in dot if not is_domain(d)]
+        if dot:
+            return dot[0]
+        dot_desc = re.findall(dot_pat, desc_snippet)
+        dot_desc = [d for d in dot_desc if not is_domain(d)]
+        if dot_desc:
+            return dot_desc[0]
+
+        # Rule 5: lowerCamelCase identifier (e.g. logDirectory, eventLog)
+        lower_camel_pat = r"\b[a-z]+[A-Z][a-zA-Z]+\b"
+        lower_camel = re.findall(lower_camel_pat, clean_title)
+        if lower_camel:
+            return lower_camel[0]
+        lower_camel_desc = re.findall(lower_camel_pat, desc_snippet)
+        if lower_camel_desc:
+            return lower_camel_desc[0]
+
+        # Rule 6: fallback — stop-word filtered title words + component prefix
+        stop_words = {
+            "the", "a", "an", "in", "of", "to", "is", "are", "for", "on",
+            "at", "by", "with", "from", "that", "this", "not", "and", "or",
+            "if", "does", "can", "will", "do", "be", "was", "were", "has",
+            "have", "it", "its", "as", "but", "when", "how", "why", "what",
+            "which", "who", "also",
+        }
+        comp_prefix = ""
+        if component:
+            parts = re.findall(r"\w+", component)
+            if parts:
+                comp_prefix = parts[0].lower() + " "
+
+        # Split words properly, stripping mid-bracket configurations (e.g. [SPARK-57415][SQL])
+        words = []
+        raw_words = re.findall(r"\b\w+(?:-\w+)*\b", ticket_title)
+        for w in raw_words:
+            w_clean = w.strip(".,()[]\"'")
+            if w_clean:
+                words.append(w_clean)
+
+        meaningful = [w for w in words if w.lower() not in stop_words and w]
+        query_words = meaningful[:4] if meaningful else words[:4]
+        if comp_prefix:
+            return comp_prefix + " ".join(query_words[:3])
+        return " ".join(query_words)
 
 
 
@@ -135,15 +182,10 @@ class EnrichmentAgent(BaseAgent):
         log.info("Enrichment target space", source_id=source_id, space=target_space)
 
         # Extract deterministic initial query
-        initial_query = self._extract_initial_query(title, description)
+        initial_query = self._extract_initial_query(title, description, component)
         log.info("Enrichment initial query", query=initial_query)
 
-        kb_articles = []
-
-        # ReAct loop: iteration 0 runs Confluence + SO in
-        # parallel internally; iterations 1+ refine via LLM
-        self._iter0_so_results = []
-        conf_result = await self._run_react_loop(
+        all_articles = await self._run_react_loop(
             title,
             component,
             description,
@@ -154,27 +196,12 @@ class EnrichmentAgent(BaseAgent):
             enrichment_model,
         )
 
-        if isinstance(conf_result, list):
-            kb_articles = conf_result
-
-        so_articles = self._iter0_so_results
-
-        # Tag every item with its source
-        for item in kb_articles:
-            item.setdefault("source", "confluence")
-        for item in so_articles:
-            item.setdefault("source", "stackoverflow")
-
-        # Merge: confluence first, then SO
-        all_articles = kb_articles + so_articles
         log.info(
             "Enrichment complete",
-            confluence=len(kb_articles),
-            stackoverflow=len(so_articles),
             total=len(all_articles),
         )
 
-        context["kb_articles"] = all_articles[:6]
+        context["kb_articles"] = all_articles[:5]
         context["enrichment_sources"] = all_articles
         return context
 
@@ -195,6 +222,15 @@ class EnrichmentAgent(BaseAgent):
             return []
 
         client = AsyncGroq(api_key=api_key)
+        seen_articles = []
+
+        def add_to_accumulator(articles):
+            for a in articles:
+                if not any(x.get("url") == a.get("url") for x in seen_articles):
+                    if "relevance" not in a:
+                        a["relevance"] = "medium"
+                    seen_articles.append(a)
+
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -213,8 +249,6 @@ class EnrichmentAgent(BaseAgent):
 
         for iteration in range(MAX_REACT_ITERS):
             try:
-                # Iteration 0: deterministic initial search,
-                # run Confluence + Stack Overflow in parallel
                 if iteration == 0:
                     query = initial_query
                     messages.append(
@@ -243,26 +277,32 @@ class EnrichmentAgent(BaseAgent):
                             "StackOverflow failed on iteration 0", error=str(so_r)
                         )
                         so_r = []
+
                     # Tag sources explicitly
                     for item in conf_r:
                         item["source"] = "confluence"
                     for item in so_r:
                         item["source"] = "stackoverflow"
-                    self._iter0_so_results = so_r
-                    results = conf_r
-                    if not results:
-                        obs = (
-                            f"No results for '{query}' in "
-                            f"{target_space} space. Try a "
-                            f"different technical term or "
-                            f"broader concept."
-                        )
+
+                    add_to_accumulator(conf_r)
+                    add_to_accumulator(so_r)
+
+                    obs_lines = []
+                    if conf_r:
+                        obs_lines.append(f"Confluence ({target_space}): {json.dumps(conf_r)}")
                     else:
-                        obs = json.dumps(results)
+                        obs_lines.append(f"Confluence ({target_space}): No results for '{query}'. Try different terms.")
+                    
+                    if so_r:
+                        obs_lines.append(f"StackOverflow: {json.dumps(so_r)}")
+                    else:
+                        obs_lines.append(f"StackOverflow: No results for '{query}'. Try different terms.")
+
+                    obs = "\n".join(obs_lines)
                     messages.append(
                         {
                             "role": "user",
-                            "content": f"Observation: {obs}",
+                            "content": f"Observation:\n{obs}",
                         }
                     )
                     continue
@@ -281,9 +321,11 @@ class EnrichmentAgent(BaseAgent):
                     raw = raw.strip("```json").strip("```").strip()
                     try:
                         parsed = json.loads(raw)
-                        return parsed if isinstance(parsed, list) else []
+                        if isinstance(parsed, list) and parsed:
+                            return parsed
+                        return seen_articles if seen_articles else []
                     except Exception:
-                        return []
+                        return seen_articles if seen_articles else []
 
                 if "Action: search_confluence" in reply and "Action Input:" in reply:
                     query = (
@@ -293,18 +335,34 @@ class EnrichmentAgent(BaseAgent):
                         .strip()
                         .strip("\"'")
                     )
-
                     results = await self._search_confluence(query, target_space)
-
+                    add_to_accumulator(results)
                     if not results:
-                        obs = (
-                            f"No results for '{query}' in "
-                            f"{target_space} space. Try a "
-                            f"different technical term or "
-                            f"broader concept."
-                        )
+                        obs = f"Confluence: No results for '{query}' in {target_space} space. Try a different technical term or broader concept."
                     else:
-                        obs = json.dumps(results)
+                        obs = f"Confluence: {json.dumps(results)}"
+
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Observation: {obs}",
+                        }
+                    )
+
+                elif "Action: search_stackoverflow" in reply and "Action Input:" in reply:
+                    query = (
+                        reply.split("Action Input:")[-1]
+                        .strip()
+                        .split("\n")[0]
+                        .strip()
+                        .strip("\"'")
+                    )
+                    results = await self._fetch_stack_overflow(query)
+                    add_to_accumulator(results)
+                    if not results:
+                        obs = f"StackOverflow: No results for '{query}'. Try a different technical term or broader concept."
+                    else:
+                        obs = f"StackOverflow: {json.dumps(results)}"
 
                     messages.append(
                         {
@@ -317,7 +375,8 @@ class EnrichmentAgent(BaseAgent):
                 log.warning("ReAct iteration failed", error=str(e), iteration=iteration)
                 break
 
-        return []
+        log.warning("LLM failed to output a Final Answer. Returning accumulated articles.")
+        return seen_articles
 
     async def _search_confluence(
         self, query: str, target_space: str = None
@@ -356,14 +415,15 @@ class EnrichmentAgent(BaseAgent):
             output = []
             for t in results:
                 article_text = t.description or ""
-                chunks = self._slice_and_score(article_text, query, 0)
+                score, chunks = self._slice_and_score(article_text, query, 0)
                 excerpt = " ... ".join(chunks)[:400]
+                relevance = "high" if score >= 0.25 else "medium" if score >= 0.10 else "low"
                 output.append(
                     {
                         "title": t.title,
                         "url": t.url,
                         "excerpt": excerpt,
-                        "relevance": "medium",
+                        "relevance": relevance,
                         "source": target_connector.system_type,
                     }
                 )
@@ -408,13 +468,21 @@ class EnrichmentAgent(BaseAgent):
                         continue
                     body = item.get("body", "")
                     excerpt = re.sub(r"<[^>]+>", "", body)[:300]
+                    score = item.get("score", 0)
+                    answered = item.get("is_answered", False)
+                    relevance = (
+                        "high"
+                        if answered and score > 5
+                        else "medium" if answered else "low"
+                    )
                     results.append(
                         {
                             "title": item.get("title", ""),
                             "url": item.get("link", ""),
-                            "score": item.get("score", 0),
+                            "score": score,
                             "answer_count": item.get("answer_count", 0),
                             "excerpt": excerpt,
+                            "relevance": relevance,
                             "source": "stackoverflow",
                         }
                     )
@@ -428,63 +496,14 @@ class EnrichmentAgent(BaseAgent):
             )
             return []
 
-    async def _search_stackoverflow(self, query: str, title: str) -> list[dict]:
-        try:
-            search_q = query or title[:50]
-            url = "https://api.stackexchange.com/2.3/search"
-            params = {
-                "order": "desc",
-                "sort": "relevance",
-                "intitle": search_q,
-                "site": "stackoverflow",
-                "pagesize": 5,
-            }
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    return []
-                items = resp.json().get("items", [])
-                results = []
-                for item in items:
-                    score = item.get("score", 0)
-                    answered = item.get("is_answered", False)
-                    relevance = (
-                        "high"
-                        if answered and score > 5
-                        else "medium" if answered else "low"
-                    )
-                    results.append(
-                        {
-                            "title": item.get("title", ""),
-                            "url": (
-                                "https://stackoverflow.com"
-                                f"/questions/"
-                                f"{item.get('question_id')}"
-                            ),
-                            "excerpt": (
-                                f"Score: {score} | "
-                                f"Answered: {answered} | "
-                                f"Tags: "
-                                f"{', '.join(item.get('tags', [])[:4])}"
-                            ),
-                            "relevance": relevance,
-                            "source": "stackoverflow",
-                        }
-                    )
-                log.info("StackOverflow search", query=search_q, count=len(results))
-                return results
-        except Exception as e:
-            log.warning("StackOverflow error", error=str(e))
-            return []
-
     def _slice_and_score(
         self, article_text: str, bug_text: str, last_modified_epoch: float = 0
-    ) -> list[str]:
+    ) -> tuple[float, list[str]]:
         paragraphs = [
             p.strip() for p in article_text.split("\n\n") if len(p.strip()) > 30
         ]
         if not paragraphs:
-            return [article_text[:500]]
+            return 0.0, [article_text[:500]]
 
         if last_modified_epoch and last_modified_epoch > 0:
             delta = (time.time() - last_modified_epoch) / (365 * 24 * 3600)
@@ -509,4 +528,5 @@ class EnrichmentAgent(BaseAgent):
 
         scored.sort(key=lambda x: x[0], reverse=True)
         top = [c for _, c in scored[:3]]
-        return top if top else [article_text[:500]]
+        top_score = scored[0][0] if scored else 0.0
+        return top_score, (top if top else [article_text[:500]])
