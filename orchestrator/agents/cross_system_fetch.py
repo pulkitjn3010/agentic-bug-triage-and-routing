@@ -24,7 +24,7 @@ UNRELATED_WORDS = ('unrelated', 'not related', 'different issue', 'different roo
 class CrossSystemFetchAgent(BaseAgent):
     step_name = 'cross_system_fetch'
     AGENT_TIMEOUT_SECONDS = 90.0
-    CONNECTOR_TIMEOUT_SECONDS = 18.0
+    CONNECTOR_TIMEOUT_SECONDS = 25.0
     FETCH_TIMEOUT_SECONDS = 8.0
     GROQ_TIMEOUT_SECONDS = 25.0
     SEMANTIC_THRESHOLD = 0.6
