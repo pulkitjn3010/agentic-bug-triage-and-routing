@@ -145,14 +145,15 @@ class GithubConnector(BaseConnector):
     async def search(
         self, query: str, max_results: int = 300, page: int = 1
     ) -> list[TicketData]:
-        MAX_PAGES = 20  # 2000 bugs ceiling for GitHub to avoid heavy rate limits
+        requested = max(1, int(max_results or 10))
         per_page = 100
+        MAX_PAGES = 20
 
         async def fetch_page(p: int, client: httpx.AsyncClient):
             if query:
                 url = f"https://api.github.com/search/issues"
                 params = {
-                    "q": f"{query}+repo:{self._repo()}+is:issue+is:open",
+                    "q": f"{query} repo:{self._repo()} is:issue is:open",
                     "per_page": per_page,
                     "page": p,
                 }
@@ -177,29 +178,43 @@ class GithubConnector(BaseConnector):
 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
-                # To be fast but respect GitHub limits, we'll fetch in batches of 5 pages
                 all_raw_items = []
-                for batch_start in range(1, MAX_PAGES + 1, 5):
+                current_page = page
+                
+                while current_page < page + MAX_PAGES and len(all_raw_items) < requested:
+                    needed = requested - len(all_raw_items)
+                    pages_to_fetch = max(1, min(5, (needed // per_page) + 1))
+                    pages_to_fetch = min(pages_to_fetch, (page + MAX_PAGES) - current_page)
+                    
                     tasks = [
                         fetch_page(p, client)
-                        for p in range(batch_start, batch_start + 5)
+                        for p in range(current_page, current_page + pages_to_fetch)
                     ]
                     batch_results = await asyncio.gather(*tasks)
 
                     batch_had_full_page = False
                     for page_items in batch_results:
-                        all_raw_items.extend(page_items)
                         if len(page_items) == per_page:
                             batch_had_full_page = True
+                            
+                        # Filter out Pull Requests immediately before counting them!
+                        valid_issues = [i for i in page_items if i.get("pull_request") is None]
+                        all_raw_items.extend(valid_issues)
+                        
+                        if len(all_raw_items) >= requested:
+                            break
 
+                    if len(all_raw_items) >= requested:
+                        break
                     if not batch_had_full_page:
                         break  # We reached the end
+                        
+                    current_page += pages_to_fetch
 
                 return [
                     self._normalise(i)
                     for i in all_raw_items
-                    if i.get("pull_request") is None
-                ]
+                ][:requested]
         except Exception as e:
             print(f"[GITHUB] Search error: {e}")
             return []
