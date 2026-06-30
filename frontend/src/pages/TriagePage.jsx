@@ -530,12 +530,10 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
             ) : !linked.kb_articles?.length ? (
               <p style={{ color: 'var(--text3)', fontSize: 13 }}>No related articles found.</p>
             ) : linked.kb_articles.map((a, i) => {
-              const scoreCls = a.score >= 5 ? 'so-score-high' : a.score >= 1 ? 'so-score-mid' : 'so-score-low'
               const relCls   = a.relevance === 'High' ? 'sev-p1' : a.relevance === 'Medium' ? 'sev-p2' : 'sev-p3'
               return (
                 <div key={i} className="kb-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', width: '100%' }}>
-                    <span className={`so-score ${scoreCls}`}>{a.score ?? 0}</span>
                     {a.is_answered && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-lt)', border: '1px solid var(--green-bd)', borderRadius: 4, padding: '1px 6px' }}>
                         ✓ Answered
