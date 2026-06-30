@@ -894,7 +894,7 @@ export default function BugListPage() {
           <span style={{ color: '#D97706' }}>⏳ Needs Triage: {metrics.needs_triage ?? 0}</span>
           <span style={{ color: 'var(--text3)' }}>·</span>
           <span style={{ color: 'var(--red)' }}>Failed: {metrics.failed_triages ?? 0}</span>
-          <span style={{ color: 'var(--text3)' }}>Â·</span>
+          <span style={{ color: 'var(--text3)' }}>·</span>
           <span style={{ color: 'var(--teal)', fontWeight: 700 }}>
             🟢 {metrics.sources_online ?? 0}/{metrics.sources_total ?? 0} Systems Online
           </span>
@@ -1020,21 +1020,6 @@ export default function BugListPage() {
           } 
           align="align-left"
         />
-      </div>
-
-      {/* Legend bar */}
-      <div className="card" style={{ padding: '10px 14px', marginBottom: 10 }}>
-        <div className="legend-bar">
-          <span className="legend-key">KEY:</span>
-          <span className="bt-badge">BT-001</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>= AI triage session</span>
-          <span className="current-badge">✓ Current</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>= triaged, no changes</span>
-          <span className="match-badge match-h">90%</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>= AI confidence</span>
-          <span className="raw-id">DISK-779</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>= untriaged bug ID</span>
-        </div>
       </div>
 
       {/* Stats line */}
