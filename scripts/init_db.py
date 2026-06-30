@@ -77,39 +77,6 @@ DEMO_SOURCES = [
         "enabled": False,
     },
     {
-        "source_id": "apache-flink-github",
-        "display_name": "Apache Flink — GitHub Issues",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_type": "pat",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "apache/flink",
-        "ticket_prefix": "FGH",
-        "enabled": False,
-    },
-    {
-        "source_id": "apache-hadoop-jira",
-        "display_name": "Apache Hadoop — Apache JIRA",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_type": "bearer_token",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "HADOOP",
-        "ticket_prefix": "HADOOP",
-        "enabled": False,
-    },
-    {
-        "source_id": "apache-hive-jira",
-        "display_name": "Apache Hive — Apache JIRA",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_type": "bearer_token",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "HIVE",
-        "ticket_prefix": "HIVE",
-        "enabled": False,
-    },
-    {
         "source_id": "kubernetes-github",
         "display_name": "Kubernetes — GitHub Issues",
         "system_type": "github",
@@ -121,28 +88,6 @@ DEMO_SOURCES = [
         "enabled": False,
     },
     {
-        "source_id": "vscode-github",
-        "display_name": "VS Code — GitHub Issues",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_type": "pat",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "microsoft/vscode",
-        "ticket_prefix": "VGH",
-        "enabled": False,
-    },
-    {
-        "source_id": "apache-flink-jira",
-        "display_name": "Apache Flink — Apache JIRA",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_type": "bearer_token",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "FLINK",
-        "ticket_prefix": "FLINK",
-        "enabled": False,
-    },
-    {
         "source_id": "hpe-confluence",
         "display_name": "HPE Engineering KB (Confluence)",
         "system_type": "confluence",
@@ -151,17 +96,6 @@ DEMO_SOURCES = [
         "auth_secret_ref": "CONFLUENCE_API_TOKEN",
         "project_key": "HPEKB",
         "ticket_prefix": "CONF",
-        "enabled": False,
-    },
-    {
-        "source_id": "hpe-customer-portal",
-        "display_name": "HPE Customer Portal (Cases)",
-        "system_type": "customer_portal",
-        "base_url": "http://localhost:8000/mock/customer-portal",
-        "auth_type": "none",
-        "auth_secret_ref": "",
-        "project_key": "",
-        "ticket_prefix": "CASE",
         "enabled": False,
     },
 ]
@@ -214,117 +148,8 @@ DEMO_USERS = [
         "password": "exec123",
         "role": "executive",
         "display_name": "HPE Executive",
-    },
+    }
 ]
-ADDITIONAL_SOURCES = [
-    # More Apache JIRA projects — zero new code
-    {
-        "source_id": "apache-zookeeper-jira",
-        "display_name": "Apache ZooKeeper (JIRA)",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "ZOOKEEPER",
-        "ticket_prefix": "ZOOKEEPER",
-        "enabled": False,
-    },
-    {
-        "source_id": "apache-cassandra-jira",
-        "display_name": "Apache Cassandra (JIRA)",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "CASSANDRA",
-        "ticket_prefix": "CASSANDRA",
-        "enabled": False,
-    },
-    {
-        "source_id": "apache-beam-jira",
-        "display_name": "Apache Beam (JIRA)",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.apache.org/jira",
-        "auth_secret_ref": "APACHE_SPARK_JIRA_TOKEN",
-        "project_key": "BEAM",
-        "ticket_prefix": "BEAM",
-        "enabled": False,
-    },
-    # Jenkins JIRA — zero new code, same connector
-    {
-        "source_id": "jenkins-jira",
-        "display_name": "Jenkins (JIRA)",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.jenkins.io",
-        "auth_secret_ref": "",
-        "project_key": "JENKINS",
-        "ticket_prefix": "JENKINS",
-        "enabled": False,
-    },
-    # Red Hat JIRA — zero new code
-    {
-        "source_id": "redhat-jira-wildfly",
-        "display_name": "WildFly / JBoss (Red Hat JIRA)",
-        "system_type": "jira_apache",
-        "base_url": "https://issues.redhat.com",
-        "auth_secret_ref": "",
-        "project_key": "WFLY",
-        "ticket_prefix": "WFLY",
-        "enabled": False,
-    },
-    # Linux Kernel Bugzilla — zero new code, same BugzillaConnector
-    {
-        "source_id": "linux-kernel-bugzilla",
-        "display_name": "Linux Kernel (Bugzilla)",
-        "system_type": "bugzilla",
-        "base_url": "https://bugzilla.kernel.org",
-        "auth_secret_ref": "",
-        "project_key": "Drivers",
-        "ticket_prefix": "BUG",
-        "enabled": False,
-    },
-    # More GitHub repos — zero new code, same GithubConnector
-    {
-        "source_id": "elastic-elasticsearch-github",
-        "display_name": "Elasticsearch (GitHub)",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "elastic/elasticsearch",
-        "ticket_prefix": "ES",
-        "enabled": False,
-    },
-    {
-        "source_id": "netty-github",
-        "display_name": "Netty (GitHub)",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "netty/netty",
-        "ticket_prefix": "NGH",
-        "enabled": False,
-    },
-    {
-        "source_id": "grpc-java-github",
-        "display_name": "gRPC Java (GitHub)",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "grpc/grpc-java",
-        "ticket_prefix": "GRPC",
-        "enabled": False,
-    },
-    {
-        "source_id": "prometheus-github",
-        "display_name": "Prometheus (GitHub)",
-        "system_type": "github",
-        "base_url": "https://api.github.com",
-        "auth_secret_ref": "APACHE_SPARK_GITHUB_TOKEN",
-        "project_key": "prometheus/prometheus",
-        "ticket_prefix": "PGH",
-        "enabled": False,
-    },
-]
-
-
 async def init():
     print("Creating database tables...")
     async with engine.begin() as conn:
@@ -334,7 +159,7 @@ async def init():
 
     async with AsyncSessionLocal() as db:
         print("\nSeeding data sources...")
-        for src_data in DEMO_SOURCES + ADDITIONAL_SOURCES:
+        for src_data in DEMO_SOURCES:
             existing = await db.execute(
                 select(SourceRegistry).where(
                     SourceRegistry.source_id == src_data["source_id"]

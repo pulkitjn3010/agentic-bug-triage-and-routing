@@ -66,7 +66,7 @@ export default function LoginPage() {
             <AsteriskSvg />
           </div>
           <h1 className="login-title">Welcome back</h1>
-          <p className="login-sub">Agentic Bug Triage System · read-only · nothing stored</p>
+          <p className="login-sub">Agentic Bug Triage System</p>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -77,7 +77,7 @@ export default function LoginPage() {
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              placeholder="test@hpe.com"
               required
             />
           </div>
