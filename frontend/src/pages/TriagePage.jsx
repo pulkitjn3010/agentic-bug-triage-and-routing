@@ -63,10 +63,10 @@ const TEAM_COLORS = [
 ]
 
 const AGENTS = [
-  { id: 'cf', icon: 'CF', name: 'Context Fetch Agent',      desc: 'Fetching full ticket context + customer cases',  phase: 1 },
-  { id: 'cs', icon: 'CS', name: 'Cross-System Fetch Agent', desc: 'Searching related issues across all trackers',   phase: 2 },
-  { id: 'en', icon: 'EN', name: 'Enrichment Agent',         desc: 'Querying Confluence knowledge base',             phase: 2 },
-  { id: 'ai', icon: 'AI', name: 'AI Synthesis Agent',       desc: 'Synthesising final triage output',               phase: 3 },
+  { id: 'cf', icon: 'CF', name: 'Context Fetch Agent',      desc: 'Building the initial issue context',  phase: 1 },
+  { id: 'cs', icon: 'CS', name: 'Cross-System Fetch Agent', desc: 'Finding related issues across connected sources',   phase: 2 },
+  { id: 'en', icon: 'EN', name: 'Enrichment Agent',         desc: 'Finding related articles and troubleshooting references',             phase: 2 },
+  { id: 'ai', icon: 'AI', name: 'AI Synthesis Agent',       desc: 'Preparing the final triage summary',               phase: 3 },
 ]
 
 function agentState(id, panels) {
@@ -117,7 +117,6 @@ function LoadingState({ caseId, panels, elapsed }) {
         <h2>Analysing Bug</h2>
         <p>
           <span className="bt-badge" style={{ marginRight: 8 }}>{caseId}</span>
-          read-only · nothing stored
         </p>
         {AGENTS.map((agent, i) => {
           const state     = agentState(agent.id, panels)
@@ -163,10 +162,13 @@ function LoadingState({ caseId, panels, elapsed }) {
 ═══════════════════════════════════ */
 function ResultsState({ caseId, panels, elapsed, onBack }) {
   const navigate = useNavigate()
+  const [expandedDescriptions, setExpandedDescriptions] = useState({})
   const ctx      = panels.bug_context   || {}
   const related  = panels.related_issues || {}
   const linked   = panels.linked_context || {}
   const aiPanel  = panels.ai_summary    || {}
+  const relatedReady = Boolean(panels.related_issues)
+  const linkedReady  = Boolean(panels.linked_context)
 
   const ticket   = ctx.bug_context?.ticket_id
     ? ctx.bug_context
@@ -387,7 +389,7 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
               )
               return (
                 <span className="panel-badge pb-blue">
-                  {tickets.length ? `${tickets.length} found` : '0 found'}
+                  {relatedReady ? (tickets.length ? `${tickets.length} found` : '0 found') : 'Finding'}
                 </span>
               )
             })()}
@@ -397,6 +399,13 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
               const tickets = (related.related_tickets || []).filter(
                 (t) => (t.similarity_score || t.relevance_score || 0) >= 0.6
               )
+              if (!relatedReady) {
+                return (
+                  <p style={{ color: 'var(--text3)', fontSize: 13 }}>
+                    Finding related issues...
+                  </p>
+                )
+              }
               if (!tickets.length) {
                 return (
                   <p style={{ color: 'var(--text3)', fontSize: 13 }}>
@@ -445,12 +454,14 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                 const barColor = isStrong ? 'var(--teal)' : 'var(--orange)'
                 const hasUrl   = t.url && t.url.startsWith('https://')
                 const title    = t.title || ''
+                const descKey  = `${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`
+                const descOpen = Boolean(expandedDescriptions[descKey])
                 const titleDisplay = title.length > 80
                   ? title.slice(0, 80) + '…'
                   : title
 
                 return (
-                  <div key={`${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`} className="issue-card">
+                  <div key={descKey} className="issue-card">
                     <div className="issue-top">
                       {relBadge(t.source || t.system_type)}
                       {hasUrl ? (
@@ -485,6 +496,24 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                     {t.similarity_reason && (
                       <p className="sim-reason">{t.similarity_reason}</p>
                     )}
+                    {t.description && (
+                      <>
+                        <button
+                          type="button"
+                          className="related-desc-toggle"
+                          aria-expanded={descOpen}
+                          onClick={() => setExpandedDescriptions((prev) => ({
+                            ...prev,
+                            [descKey]: !prev[descKey],
+                          }))}
+                        >
+                          {descOpen ? 'Hide description' : 'View description'}
+                        </button>
+                        {descOpen && (
+                          <p className="related-desc">{t.description}</p>
+                        )}
+                      </>
+                    )}
                   </div>
                 )
               })
@@ -506,7 +535,7 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                 </ul>
               } />
             </span>
-            <span className="panel-badge pb-amber">{linked.kb_articles?.length || 0} results</span>
+            <span className="panel-badge pb-amber">{linkedReady ? `${linked.kb_articles?.length || 0} results` : 'Finding'}</span>
           </div>
           <div className="panel-body scroll">
             {linked.kb_reasoning && (
@@ -517,15 +546,15 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                 </div>
               </>
             )}
-            {!linked.kb_articles?.length ? (
-              <p style={{ color: 'var(--text3)', fontSize: 13 }}>No knowledge base articles found.</p>
+            {!linkedReady ? (
+              <p style={{ color: 'var(--text3)', fontSize: 13 }}>Finding related articles...</p>
+            ) : !linked.kb_articles?.length ? (
+              <p style={{ color: 'var(--text3)', fontSize: 13 }}>No related articles found.</p>
             ) : linked.kb_articles.map((a, i) => {
-              const scoreCls = a.score >= 5 ? 'so-score-high' : a.score >= 1 ? 'so-score-mid' : 'so-score-low'
               const relCls   = a.relevance === 'High' ? 'sev-p1' : a.relevance === 'Medium' ? 'sev-p2' : 'sev-p3'
               return (
                 <div key={i} className="kb-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', width: '100%' }}>
-                    <span className={`so-score ${scoreCls}`}>{a.score ?? 0}</span>
                     {a.is_answered && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-lt)', border: '1px solid var(--green-bd)', borderRadius: 4, padding: '1px 6px' }}>
                         ✓ Answered

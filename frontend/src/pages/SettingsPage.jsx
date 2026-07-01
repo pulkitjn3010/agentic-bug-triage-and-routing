@@ -9,7 +9,6 @@ const SYSTEM_TYPES = [
   { value: 'jira_apache', label: 'Apache JIRA' },
   { value: 'bugzilla',    label: 'Bugzilla' },
   { value: 'confluence',  label: 'Confluence' },
-  { value: 'customer_portal', label: 'Customer Portal' },
   { value: 'support_kb',  label: 'Support KB' },
 ]
 
@@ -18,7 +17,6 @@ const BASE_URL_DEFAULTS = {
   jira_apache: 'https://issues.apache.org/jira',
   bugzilla:    'https://bugzilla.mozilla.org',
   confluence:  'https://cwiki.apache.org/confluence',
-  customer_portal: 'http://localhost:8000/mock/customer-portal',
   support_kb:  'https://cpp3-hpe.atlassian.net/wiki',
 }
 
@@ -27,7 +25,6 @@ const ICON_COLORS = {
   jira_apache:     { bg: '#1A56A0', text: '#fff' },
   bugzilla:        { bg: '#D97706', text: '#fff' },
   confluence:      { bg: '#0A7C6E', text: '#fff' },
-  customer_portal: { bg: '#166534', text: '#fff' },
   support_kb:      { bg: '#0A7C6E', text: '#fff' },
 }
 
@@ -38,7 +35,6 @@ const FILTER_OPTIONS = [
   { key: 'jira_apache',     label: 'Apache JIRA',       typeKey: 'jira_apache' },
   { key: 'bugzilla',        label: 'Bugzilla',          typeKey: 'bugzilla' },
   { key: 'confluence',      label: 'Confluence',        typeKey: 'confluence' },
-  { key: 'customer_portal', label: 'Customer Portal',   typeKey: 'customer_portal' },
   { key: 'support_kb',      label: 'Support KB',        typeKey: 'support_kb' },
 ]
 

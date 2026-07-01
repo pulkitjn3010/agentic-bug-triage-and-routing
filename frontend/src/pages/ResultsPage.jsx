@@ -60,6 +60,7 @@ export default function ResultsPage() {
   const navigate    = useNavigate()
   const [result,    setResult]  = useState(null)
   const [loading,   setLoading] = useState(true)
+  const [expandedDescriptions, setExpandedDescriptions] = useState({})
 
   useEffect(() => {
     client.get(`/triage/${caseId}/result`)
@@ -184,8 +185,10 @@ export default function ResultsPage() {
               const fillCls  = score >= 0.8 ? 'sim-h' : score >= 0.6 ? 'sim-m' : 'sim-l'
               const barColor = score >= 0.8 ? 'var(--teal)' : 'var(--orange)'
               const hasUrl   = t.url && t.url.startsWith('https://')
+              const descKey  = `${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`
+              const descOpen = Boolean(expandedDescriptions[descKey])
               return (
-                <div key={`${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`} className="issue-card">
+                <div key={descKey} className="issue-card">
                   <div className="issue-top">
                     <span className="mono" style={{ fontSize: 11, color: hasUrl ? 'var(--blue)' : 'var(--text2)', flexShrink: 0 }}>
                       <TicketLink ticket={t} />
@@ -204,6 +207,24 @@ export default function ResultsPage() {
                   </div>
                   {t.similarity_reason && (
                     <p className="sim-reason">{t.similarity_reason}</p>
+                  )}
+                  {t.description && (
+                    <>
+                      <button
+                        type="button"
+                        className="related-desc-toggle"
+                        aria-expanded={descOpen}
+                        onClick={() => setExpandedDescriptions((prev) => ({
+                          ...prev,
+                          [descKey]: !prev[descKey],
+                        }))}
+                      >
+                        {descOpen ? 'Hide description' : 'View description'}
+                      </button>
+                      {descOpen && (
+                        <p className="related-desc">{t.description}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )
