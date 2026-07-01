@@ -132,6 +132,12 @@ DEMO_USERS = [
         "display_name": "Om",
     },
     {
+        "email": "test@hpe.com",
+        "password": "password123",
+        "role": "engineer",
+        "display_name": "Test User",
+    },
+    {
         "email": "admin@hpe.com",
         "password": "admin123",
         "role": "admin",
@@ -178,8 +184,10 @@ async def init():
         pwd_ctx = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
         user_count_result = await db.execute(select(UserRole))
         existing_users = list(user_count_result.scalars().all())
-        if not existing_users:
-            for u in DEMO_USERS:
+        existing_user_ids = {u.user_id for u in existing_users}
+        added_users = 0
+        for u in DEMO_USERS:
+            if u["email"] not in existing_user_ids:
                 user = UserRole(
                     user_id=u["email"],
                     role=u["role"],
@@ -188,9 +196,13 @@ async def init():
                 )
                 db.add(user)
                 print(f"  + {u['email']} ({u['role']})")
+                added_users += 1
+            else:
+                print(f"  ~ {u['email']} (already exists)")
+        if added_users:
             await db.commit()
         else:
-            print(f"  ~ {len(existing_users)} users already exist, skipping seed")
+            print("  ~ all demo users already exist")
 
     print("\nDatabase initialization complete.")
 
