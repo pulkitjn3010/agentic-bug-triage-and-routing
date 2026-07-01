@@ -162,6 +162,7 @@ function LoadingState({ caseId, panels, elapsed }) {
 ═══════════════════════════════════ */
 function ResultsState({ caseId, panels, elapsed, onBack }) {
   const navigate = useNavigate()
+  const [expandedDescriptions, setExpandedDescriptions] = useState({})
   const ctx      = panels.bug_context   || {}
   const related  = panels.related_issues || {}
   const linked   = panels.linked_context || {}
@@ -453,12 +454,14 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                 const barColor = isStrong ? 'var(--teal)' : 'var(--orange)'
                 const hasUrl   = t.url && t.url.startsWith('https://')
                 const title    = t.title || ''
+                const descKey  = `${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`
+                const descOpen = Boolean(expandedDescriptions[descKey])
                 const titleDisplay = title.length > 80
                   ? title.slice(0, 80) + '…'
                   : title
 
                 return (
-                  <div key={`${t.source_id || t.system_type || 'source'}-${t.ticket_id || t.id || i}`} className="issue-card">
+                  <div key={descKey} className="issue-card">
                     <div className="issue-top">
                       {relBadge(t.source || t.system_type)}
                       {hasUrl ? (
@@ -492,6 +495,24 @@ function ResultsState({ caseId, panels, elapsed, onBack }) {
                     </div>
                     {t.similarity_reason && (
                       <p className="sim-reason">{t.similarity_reason}</p>
+                    )}
+                    {t.description && (
+                      <>
+                        <button
+                          type="button"
+                          className="related-desc-toggle"
+                          aria-expanded={descOpen}
+                          onClick={() => setExpandedDescriptions((prev) => ({
+                            ...prev,
+                            [descKey]: !prev[descKey],
+                          }))}
+                        >
+                          {descOpen ? 'Hide description' : 'View description'}
+                        </button>
+                        {descOpen && (
+                          <p className="related-desc">{t.description}</p>
+                        )}
+                      </>
                     )}
                   </div>
                 )

@@ -537,6 +537,41 @@ input, select, textarea { font-family: inherit; }
 .sim-pct.m { color: var(--amber); }
 .sim-pct.l { color: var(--orange); }
 .sim-reason { font-size: 11px; color: var(--text3); font-style: italic; }
+.related-desc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.related-desc-toggle::before {
+  content: "+";
+  font-family: 'JetBrains Mono', monospace;
+}
+.related-desc-toggle[aria-expanded="true"]::before {
+  content: "-";
+}
+.related-desc-toggle:hover {
+  text-decoration: underline;
+}
+.related-desc {
+  margin: 7px 0 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* KB articles */
 .kb-card { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
 .kb-card:last-child { margin-bottom: 0; }

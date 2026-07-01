@@ -391,8 +391,6 @@ class CrossSystemFetchAgent(BaseAgent):
 
         async def hydrate(signal: dict) -> dict | None:
             candidate = self._dict_to_candidate(signal)
-            if candidate.get('provenance') == ['redis_cache'] and candidate.get('title'):
-                return candidate
             if candidate.get('title') and candidate.get('description'):
                 return candidate
             source_id = candidate.get('source_id')
@@ -714,7 +712,7 @@ class CrossSystemFetchAgent(BaseAgent):
         fields = raw.get('similarity_matching_fields') or []
         if not isinstance(fields, list):
             fields = []
-        return {'id': display_id, 'ticket_id': display_id, 'title': self._safe_str(raw.get('title') or raw.get('summary') or raw.get('name')), 'url': url, 'status': self._safe_str(raw.get('status') or raw.get('state') or 'unknown').lower(), 'source': system_type, 'source_id': source_id, 'system_type': system_type, 'description': self._safe_str(raw.get('description') or raw.get('body'))[:300], 'relevance_score': round(score, 2), 'similarity_score': round(score, 2), 'similarity_label': self._safe_str(raw.get('similarity_label')) or self._label(score, relationship), 'similarity_reason': reason, 'relationship_type': relationship, 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'raw_key': self._safe_str(raw.get('raw_key') or raw.get('key') or ticket_id), 'backend_key': self._safe_str(raw.get('backend_key')), 'provenance': raw.get('provenance') or []}
+        return {'id': display_id, 'ticket_id': display_id, 'title': self._safe_str(raw.get('title') or raw.get('summary') or raw.get('name')), 'url': url, 'status': self._safe_str(raw.get('status') or raw.get('state') or 'unknown').lower(), 'source': system_type, 'source_id': source_id, 'system_type': system_type, 'description': self._safe_str(raw.get('description') or raw.get('body'))[:2000], 'relevance_score': round(score, 2), 'similarity_score': round(score, 2), 'similarity_label': self._safe_str(raw.get('similarity_label')) or self._label(score, relationship), 'similarity_reason': reason, 'relationship_type': relationship, 'similarity_matching_fields': [self._safe_str(f) for f in fields if self._safe_str(f)], 'raw_key': self._safe_str(raw.get('raw_key') or raw.get('key') or ticket_id), 'backend_key': self._safe_str(raw.get('backend_key')), 'provenance': raw.get('provenance') or []}
 
     def _ticket_to_candidate(self, item: Any, connector: Any | None=None) -> dict:
         if dataclasses.is_dataclass(item):
